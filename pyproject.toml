@@ -1,5 +1,6 @@
 [tool.poetry]
 name = "ai-music-generation"
+package-mode = false
 version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
@@ -7,6 +8,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.9"
+kedro = "^0.19.5"
 
 
 [build-system]
