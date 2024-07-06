@@ -4,7 +4,9 @@ repos:
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer
+        exclude: data/
       - id: trailing-whitespace
+        exclude: data/
       - id: check-toml
 
   - repo: https://github.com/pycqa/isort
