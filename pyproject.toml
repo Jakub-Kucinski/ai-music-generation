@@ -13,7 +13,8 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-kedro = "^0.19.5"
+kedro = {version = "==0.19.5"}
+kedro-datasets = {extras = ["pandas"], version = "==4.0.0"}
 
 [tool.poetry.group.lint]
 optional = true
