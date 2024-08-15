@@ -154,5 +154,8 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-
+# Some stats saved by kedro
 stats.json
+
+# Notebooks
+notebooks/*.ipynb

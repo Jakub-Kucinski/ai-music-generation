@@ -34,7 +34,7 @@ loggers:
   kedro:
     level: DEBUG
 
-  ai-music-generation:
+  ai_music_generation:
     level: DEBUG
 
 root:

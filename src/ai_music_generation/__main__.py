@@ -1,5 +1,5 @@
-"""ai-music-generation file for ensuring the package is executable
-as `ai-music-generation` and `python -m ai-music-generation`
+"""ai_music_generation file for ensuring the package is executable
+as `ai_music_generation` and `python -m ai_music_generation`
 """
 
 import importlib
