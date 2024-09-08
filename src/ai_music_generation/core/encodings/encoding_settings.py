@@ -11,9 +11,9 @@ PIANO_RANGE = (21, 108)
 class EncodingSetting(BaseModel):
     include_bars: bool = False
     include_rests: bool = True
-    include_time_signature: bool = True
     include_clef: bool = True
     include_key_signature: bool = True
+    include_time_signature: bool = True
     notes_range: Tuple[int, int] = PIANO_RANGE
     shortest_note_duration: int = 32  # 1/n, shortest accepted note duration (Nth)
     longest_note_duration: int = 4  # n, longest accepted note duration (N whole notes)

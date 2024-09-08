@@ -1,48 +1,22 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional, Tuple, Union, cast
+from typing import Union, cast
 
 import music21
 import music21.meter.base
 import numpy as np
-from pydantic import BaseModel
 
-from ai_music_generation.core.encodings.encoding_settings import (
-    PIANO_RANGE,
-    EncodingSetting,
-)
+from ai_music_generation.core.encodings.encoding_settings import EncodingSetting
 from ai_music_generation.core.pydantic_models.instrument_types import InstrumentTypes
-
-
-class NoteModel(BaseModel):
-    pitch: int
-    duration: int
-
-
-class RestModel(BaseModel):
-    duration: int
-
-
-class TimeShiftModel(BaseModel):
-    duration: int
-
-
-class TimeSignatureModel(BaseModel):
-    pass  # TODO: fill implementation
-
-
-class ClefModel(BaseModel):
-    sign: str
-    line: int
-    is_percussion: bool = False
-
-
-class KeySignatureModel(BaseModel):
-    sharps: int = 0
-
-
-class BarModel(BaseModel):
-    pass
+from ai_music_generation.core.pydantic_models.musical_notation import (
+    BarModel,
+    ClefModel,
+    KeySignatureModel,
+    NoteModel,
+    RestModel,
+    TimeSignatureModel,
+)
+from ai_music_generation.core.vocab.vocab import Vocab
 
 
 # TODO: ADD HANDLING MEASURES IN PARTS
@@ -54,22 +28,16 @@ class MidiEncoder:
 
     def __init__(
         self,
-        # time_signature_beats_per_bar: int = 4,
-        # time_signature_beats_type: int = 4,
-        # midi_notes_range: Tuple[int, int] = PIANO_RANGE,
-        # ticks_per_beat: int = 128,
-        # time_sampling_frequency: int = 8,
+        vocab: Vocab,
         encoding_settings: EncodingSetting = EncodingSetting(),
     ) -> None:
-        # self.beats_per_bar = time_signature_beats_per_bar
-        # self.ts_beats_type = time_signature_beats_type
-        # self.midi_notes_range = midi_notes_range
-        # self.ticks_per_beat = ticks_per_beat
-        # self.max_note_duration = 8 * self.beats_per_bar * time_sampling_frequency
-        # self.duration_size = (10 * self.beats_per_bar * time_sampling_frequency) + 1
+        self.vocab = vocab
 
         self.include_bars = encoding_settings.include_bars
         self.include_rests = encoding_settings.include_rests
+        self.include_clef = encoding_settings.include_clef
+        self.include_key_signature = encoding_settings.include_key_signature
+        self.include_time_signature = encoding_settings.include_time_signature
         self.shortest_note_duration = encoding_settings.shortest_note_duration
         self.longest_note_duration = encoding_settings.longest_note_duration
         self.allowed_instruments = encoding_settings.allowed_instruments
@@ -87,7 +55,7 @@ class MidiEncoder:
         stream = music21.midi.translate.midiFileToStream(midi_file)
         return self.midi_stream_to_numpy_repr(stream=stream)
 
-    def filepath_to_numpy_repr(
+    def filepath_to_numpy_repr(  # TODO: Change this function to return text(s)
         self,
         midi_path: Path,
     ) -> np.ndarray:
@@ -129,17 +97,40 @@ class MidiEncoder:
                 if flattened_part.timeSignature is not None
                 else music21.meter.base.TimeSignature(value="4/4")
             )
+            time_signature_model = TimeSignatureModel(
+                numerator=(
+                    time_signature.numerator
+                    if time_signature.numerator is not None
+                    else 4
+                ),
+                denominator=(
+                    time_signature.denominator
+                    if time_signature.denominator is not None
+                    else 4
+                ),
+            )
             clef = (
                 flattened_part.clef
                 if flattened_part.clef is not None
                 and not isinstance(flattened_part.clef, music21.clef.NoClef)
                 else music21.clef.bestClef(flattened_part)
             )
+            clef_model = ClefModel(
+                sign=clef.sign if clef.sign is not None else "G",
+                line=clef.line if clef.line is not None else "1",
+                octaveChange=(
+                    clef.octaveChange if clef.octaveChange is not None else 0
+                ),
+            )
             key_signature = (
                 flattened_part.keySignature
                 if flattened_part.keySignature is not None
                 else music21.key.KeySignature(sharps=0)
             )
+            key_signature_model = KeySignatureModel(
+                sharps=key_signature.sharps if key_signature.sharps else 0
+            )
+
             highest_time = self.duration_or_offset_to_int_enc(
                 flattened_part.highestTime
             )
@@ -157,6 +148,17 @@ class MidiEncoder:
                         i * time_signature.barDuration.quarterLength
                     )
                     offset_to_notes[current_bar_offset] = BarModel()
+
+            self.vocab.offset_mapping_to_text(
+                sorted_offsets=sorted_offsets,
+                time_signature=(
+                    time_signature_model if self.include_time_signature else None
+                ),
+                clef=clef_model if self.include_clef else None,
+                key_signature=(
+                    key_signature_model if self.include_key_signature else None
+                ),
+            )
 
             # TODO: Add transforming to list format and adding TimeShiftModel and maybe
             # TimeSignatureModel, ClefModel, KeySignatureModel if set by settings
