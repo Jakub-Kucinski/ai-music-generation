@@ -1,0 +1,236 @@
+from collections import defaultdict
+from pathlib import Path
+from typing import Optional, Tuple, Union, cast
+
+import music21
+import music21.meter.base
+import numpy as np
+from pydantic import BaseModel
+
+from ai_music_generation.core.encodings.encoding_settings import (
+    PIANO_RANGE,
+    EncodingSetting,
+)
+from ai_music_generation.core.pydantic_models.instrument_types import InstrumentTypes
+
+
+class NoteModel(BaseModel):
+    pitch: int
+    duration: int
+
+
+class RestModel(BaseModel):
+    duration: int
+
+
+class TimeShiftModel(BaseModel):
+    duration: int
+
+
+class TimeSignatureModel(BaseModel):
+    pass  # TODO: fill implementation
+
+
+class ClefModel(BaseModel):
+    sign: str
+    line: int
+    is_percussion: bool = False
+
+
+class KeySignatureModel(BaseModel):
+    sharps: int = 0
+
+
+class BarModel(BaseModel):
+    pass
+
+
+# TODO: ADD HANDLING MEASURES IN PARTS
+# TODO: CONSIDER ALTERNATIVE REPRESENTATION - without time shift, but with offsets
+# in quarterLength from last bar
+class MidiEncoder:
+    """Class containing the implementations of methods for transforming data
+    from different forms e.g. midi -> text"""
+
+    def __init__(
+        self,
+        # time_signature_beats_per_bar: int = 4,
+        # time_signature_beats_type: int = 4,
+        # midi_notes_range: Tuple[int, int] = PIANO_RANGE,
+        # ticks_per_beat: int = 128,
+        # time_sampling_frequency: int = 8,
+        encoding_settings: EncodingSetting = EncodingSetting(),
+    ) -> None:
+        # self.beats_per_bar = time_signature_beats_per_bar
+        # self.ts_beats_type = time_signature_beats_type
+        # self.midi_notes_range = midi_notes_range
+        # self.ticks_per_beat = ticks_per_beat
+        # self.max_note_duration = 8 * self.beats_per_bar * time_sampling_frequency
+        # self.duration_size = (10 * self.beats_per_bar * time_sampling_frequency) + 1
+
+        self.include_bars = encoding_settings.include_bars
+        self.include_rests = encoding_settings.include_rests
+        self.shortest_note_duration = encoding_settings.shortest_note_duration
+        self.longest_note_duration = encoding_settings.longest_note_duration
+        self.allowed_instruments = encoding_settings.allowed_instruments
+
+    def midi_stream_to_numpy_repr(
+        self,
+        stream: music21.stream.Score,
+    ) -> np.ndarray:
+        raise NotImplementedError()
+
+    def midi_file_to_numpy_repr(
+        self,
+        midi_file: music21.midi.MidiFile,
+    ) -> np.ndarray:
+        stream = music21.midi.translate.midiFileToStream(midi_file)
+        return self.midi_stream_to_numpy_repr(stream=stream)
+
+    def filepath_to_numpy_repr(
+        self,
+        midi_path: Path,
+    ) -> np.ndarray:
+        mf = music21.midi.MidiFile()
+        mf.open(midi_path)
+        mf.read()
+        mf.close()
+        mf.tracks = self.filter_allowed_tracks(mf.tracks)
+        score = cast(music21.stream.Score, music21.midi.translate.midiFileToStream(mf))
+        for idx, part in enumerate(score.parts):
+            flattened_part = part.flatten()
+            offset_to_notes: dict[int, list[Union[NoteModel, RestModel, BarModel]]] = (
+                defaultdict(list)
+            )
+            if flattened_part.timeSignature is None:
+                flattened_part.timeSignature = music21.meter.base.TimeSignature(
+                    value="4/4"
+                )
+            for elem in part.flatten():
+                if isinstance(elem, music21.note.Note):
+                    duration = self.get_note_chord_rest_duration_as_int(elem)
+                    offset = self.duration_or_offset_to_int_enc(elem.offset)
+                    note_model = NoteModel(pitch=elem.pitch.midi, duration=duration)
+                    offset_to_notes[offset].append(note_model)
+                elif isinstance(elem, music21.chord.Chord):
+                    offset = self.duration_or_offset_to_int_enc(elem.offset)
+                    duration = self.get_note_chord_rest_duration_as_int(elem)
+                    for pitch in elem.pitches:
+                        note_model = NoteModel(pitch=pitch.midi, duration=duration)
+                        offset_to_notes[offset].append(note_model)
+                elif isinstance(elem, music21.note.Rest) and self.include_rests:
+                    duration = self.get_note_chord_rest_duration_as_int(elem)
+                    offset = self.duration_or_offset_to_int_enc(elem.offset)
+                    res_model = RestModel(duration=duration)
+                    offset_to_notes[offset].append(res_model)
+
+            time_signature = (
+                flattened_part.timeSignature
+                if flattened_part.timeSignature is not None
+                else music21.meter.base.TimeSignature(value="4/4")
+            )
+            clef = (
+                flattened_part.clef
+                if flattened_part.clef is not None
+                and not isinstance(flattened_part.clef, music21.clef.NoClef)
+                else music21.clef.bestClef(flattened_part)
+            )
+            key_signature = (
+                flattened_part.keySignature
+                if flattened_part.keySignature is not None
+                else music21.key.KeySignature(sharps=0)
+            )
+            highest_time = self.duration_or_offset_to_int_enc(
+                flattened_part.highestTime
+            )
+            sorted_offsets = sorted(offset_to_notes)
+
+            # Add bars to offsets
+            if self.include_bars:
+                i = 0
+                current_bar_offset = self.duration_or_offset_to_int_enc(
+                    i * time_signature.barDuration.quarterLength
+                )
+                while current_bar_offset < highest_time:
+                    i += 1
+                    current_bar_offset = self.duration_or_offset_to_int_enc(
+                        i * time_signature.barDuration.quarterLength
+                    )
+                    offset_to_notes[current_bar_offset] = BarModel()
+
+            # TODO: Add transforming to list format and adding TimeShiftModel and maybe
+            # TimeSignatureModel, ClefModel, KeySignatureModel if set by settings
+        raise NotImplementedError()
+        # score = music21.converter.parse(midi_path)
+        # return self.midi_stream_to_numpy_repr(score)
+
+    def filter_allowed_tracks(
+        self, tracks: list[music21.midi.MidiTrack]
+    ) -> list[music21.midi.MidiTrack]:
+        accepted_tracks = []
+        for track in tracks:
+            if cast(music21.midi.MidiTrack, track).hasNotes():
+                if self.is_allowed_instrument(track):
+                    accepted_tracks.append(track)
+        return accepted_tracks
+
+    def is_allowed_instrument(self, track: music21.midi.MidiTrack) -> bool:
+        if (
+            InstrumentTypes.PERCUSSIVE in self.allowed_instruments
+            and 10 in track.getChannels()
+        ):
+            return True
+        instruments = cast(list[int], track.getProgramChanges())
+        for instrument in instruments:
+            is_instrument_allowed = False
+            for allowed_instrument in self.allowed_instruments:
+                if instrument in allowed_instrument.value:
+                    is_instrument_allowed = True
+            if not is_instrument_allowed:
+                return False
+        return True
+
+    def convert_to_numpy_repr(
+        self,
+        obj: Union[music21.stream.Score, music21.midi.MidiFile, Path, str],
+    ) -> np.ndarray:
+        if isinstance(obj, music21.stream.Score):
+            return self.midi_stream_to_numpy_repr(obj)
+        if isinstance(obj, music21.midi.MidiFile):
+            return self.midi_file_to_numpy_repr(obj)
+        if isinstance(obj, Path):
+            return self.filepath_to_numpy_repr(obj)
+        if isinstance(obj, str):
+            path = Path(obj)
+            return self.filepath_to_numpy_repr(path)
+        raise TypeError(
+            "convert_to_numpy_repr support input objects of types "
+            "Union[music21.stream.Score, music21.midi.MidiFile, Path, str], "
+            f"but provided object {obj} was of type {type(obj)}"
+        )
+
+    def duration_or_offset_to_int_enc(self, quarterLength: float) -> int:
+        duration_as_int = quarterLength * (self.shortest_note_duration / 4)
+        if not duration_as_int.is_integer():
+            raise ValueError(
+                f"Encountered note whose duration {quarterLength / 4} couldn't be "
+                "represented as integer multiple of "
+                f"self.shortest_note_duration {self.shortest_note_duration}"
+            )
+
+    def get_note_chord_rest_duration_as_int(
+        self,
+        note_chord_rest: Union[
+            music21.note.Note, music21.chord.Chord, music21.note.Rest
+        ],
+    ) -> int:
+        duration_as_int = self.duration_or_offset_to_int_enc(
+            note_chord_rest.quarterLength
+        )
+        if note_chord_rest.duration.quarterLength > self.longest_note_duration * 4:
+            raise ValueError(
+                "Encountered note whose duration "
+                f"{note_chord_rest.duration.quarterLength / 4} is bigger than "
+                f"self.longest_note_duration {self.longest_note_duration}"
+            )
+        return duration_as_int
