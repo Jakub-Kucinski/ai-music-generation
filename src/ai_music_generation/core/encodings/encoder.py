@@ -1,10 +1,10 @@
 from collections import defaultdict
+from fractions import Fraction
 from pathlib import Path
 from typing import Union, cast
 
 import music21
 import music21.meter.base
-import numpy as np
 
 from ai_music_generation.core.encodings.encoding_settings import EncodingSetting
 from ai_music_generation.core.pydantic_models.instrument_types import InstrumentTypes
@@ -47,13 +47,13 @@ class MidiEncoder:
     def midi_stream_to_texts(
         self,
         stream: music21.stream.Score,
-    ) -> np.ndarray:
+    ) -> list[str]:
         raise NotImplementedError()
 
     def midi_file_to_texts(
         self,
         midi_file: music21.midi.MidiFile,
-    ) -> np.ndarray:
+    ) -> list[str]:
         stream = music21.midi.translate.midiFileToStream(midi_file)
         return self.midi_stream_to_texts(stream=stream)
 
@@ -74,7 +74,7 @@ class MidiEncoder:
         time_signature = music21.meter.base.TimeSignature(value="4/4")
         time_signature_model = TimeSignatureModel(numerator=4, denominator=4)
         clef: music21.clef.Clef = music21.clef.NoClef()
-        clef_model = ClefModel(sign="G", line="1", octaveChange=0)
+        clef_model = ClefModel(sign="G", line=1, octaveChange=0)
         key_signature = music21.key.KeySignature(sharps=0)
         key_signature_model = KeySignatureModel(sharps=0)
 
@@ -90,8 +90,8 @@ class MidiEncoder:
                     note_model = NoteModel(pitch=elem.pitch.midi, duration=duration)
                     offset_to_notes[offset].append(note_model)
                 elif isinstance(elem, music21.chord.Chord):
-                    offset = self.duration_or_offset_to_int_enc(elem.offset)
                     duration = self.get_note_chord_rest_duration_as_int(elem)
+                    offset = self.duration_or_offset_to_int_enc(elem.offset)
                     for pitch in elem.pitches:
                         note_model = NoteModel(pitch=pitch.midi, duration=duration)
                         offset_to_notes[offset].append(note_model)
@@ -114,7 +114,7 @@ class MidiEncoder:
             )
             clef_model = ClefModel(
                 sign=clef.sign if clef.sign is not None else "G",
-                line=clef.line if clef.line is not None else "1",
+                line=clef.line if clef.line is not None else 1,
                 octaveChange=(clef.octaveChange if clef.octaveChange is not None else 0),
             )
             key_signature = (
@@ -125,7 +125,6 @@ class MidiEncoder:
             key_signature_model = KeySignatureModel(sharps=key_signature.sharps if key_signature.sharps else 0)
 
             highest_time = self.duration_or_offset_to_int_enc(flattened_part.highestTime)
-            sorted_offsets = sorted(offset_to_notes)
 
             # Add bars to offsets
             if self.include_bars:
@@ -136,32 +135,31 @@ class MidiEncoder:
                     current_bar_offset = self.duration_or_offset_to_int_enc(
                         i * time_signature.barDuration.quarterLength
                     )
-                    offset_to_notes[current_bar_offset] = BarModel()
+                    offset_to_notes[current_bar_offset].append(BarModel())
             if self.join_parts:
-                offset_to_notes_list.append(sorted_offsets)
+                offset_to_notes_list.append(offset_to_notes)
             else:
                 # TODO: add saving somewhere
                 result_texts.append(
                     self.vocab.offset_mapping_to_text(
-                        sorted_offsets=sorted_offsets,
-                        time_signature=(time_signature_model if self.include_time_signature else None),
+                        offset_to_notes=offset_to_notes,
                         clef=clef_model if self.include_clef else None,
                         key_signature=(key_signature_model if self.include_key_signature else None),
+                        time_signature=(time_signature_model if self.include_time_signature else None),
                     )
                 )
         if self.join_parts and len(score.parts) > 0:
             offset_to_notes = offset_to_notes_list[0]
             for offset_to_notes_mapping in offset_to_notes_list[1:]:
-                for offset, note in offset_to_notes_mapping.items():
-                    offset_to_notes[offset].append(note)
-            sorted_offsets = sorted(offset_to_notes)
+                for offset, notes in offset_to_notes_mapping.items():
+                    offset_to_notes[offset].extend(notes)
             # TODO: add saving somewhere
             result_texts.append(
                 self.vocab.offset_mapping_to_text(
-                    sorted_offsets=sorted_offsets,
-                    time_signature=(time_signature_model if self.include_time_signature else None),
+                    offset_to_notes=offset_to_notes,
                     clef=clef_model if self.include_clef else None,
                     key_signature=(key_signature_model if self.include_key_signature else None),
+                    time_signature=(time_signature_model if self.include_time_signature else None),
                 )
             )
         return result_texts
@@ -171,7 +169,7 @@ class MidiEncoder:
     def filter_allowed_tracks(self, tracks: list[music21.midi.MidiTrack]) -> list[music21.midi.MidiTrack]:
         accepted_tracks = []
         for track in tracks:
-            if cast(music21.midi.MidiTrack, track).hasNotes():
+            if track.hasNotes():
                 if self.is_allowed_instrument(track):
                     accepted_tracks.append(track)
         return accepted_tracks
@@ -192,7 +190,7 @@ class MidiEncoder:
     def convert_to_texts(
         self,
         obj: Union[music21.stream.Score, music21.midi.MidiFile, Path, str],
-    ) -> np.ndarray:
+    ) -> list[str]:
         if isinstance(obj, music21.stream.Score):
             return self.midi_stream_to_texts(obj)
         if isinstance(obj, music21.midi.MidiFile):
@@ -208,7 +206,7 @@ class MidiEncoder:
             f"but provided object {obj} was of type {type(obj)}"
         )
 
-    def duration_or_offset_to_int_enc(self, quarterLength: float) -> int:
+    def duration_or_offset_to_int_enc(self, quarterLength: float | Fraction) -> int:
         duration_as_int = quarterLength * (self.shortest_note_duration / 4)
         if not duration_as_int.is_integer():
             raise ValueError(

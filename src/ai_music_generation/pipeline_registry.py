@@ -14,5 +14,5 @@ def register_pipelines() -> Dict[str, Pipeline]:
     """
     pipelines = find_pipelines()
     print(pipelines)
-    pipelines["__default__"] = sum(pipelines.values())
+    pipelines["__default__"] = sum(pipelines.values())  # type: ignore
     return pipelines

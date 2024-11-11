@@ -4,10 +4,14 @@ from pydantic import BaseModel
 class NoteModel(BaseModel):
     pitch: int
     duration: int
+    # offset_from_bar: int
+    # nth_bar: int
 
 
 class RestModel(BaseModel):
     duration: int
+    # offset_from_bar: int
+    # nth_bar: int
 
 
 class TimeShiftModel(BaseModel):
@@ -31,4 +35,5 @@ class KeySignatureModel(BaseModel):
 
 
 class BarModel(BaseModel):
+    # nth_bar: int
     pass
