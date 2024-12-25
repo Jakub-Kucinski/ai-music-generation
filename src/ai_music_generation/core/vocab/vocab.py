@@ -2,7 +2,7 @@ from collections import defaultdict
 from enum import StrEnum
 from typing import Tuple
 
-from devtools import pformat
+from devtools import pformat, pprint
 from loguru import logger
 
 from ai_music_generation.core.encodings.encoding_settings import EncodingSetting
@@ -39,10 +39,10 @@ class Vocab:
             encoding_settings.longest_note_duration * encoding_settings.shortest_note_duration,
         )  # TODO: Ensure this is correct
         self.durations: list[str] = [  # TODO: Ensure this is correct
-            f"d{i}" for i in range(self.durations_range[0], self.durations_range[0] + 1)
+            f"d{i}" for i in range(self.durations_range[0], self.durations_range[1] + 1)
         ]
         self.pitches_range = encoding_settings.notes_range
-        self.pitches: list[str] = [f"p{i}" for i in range(self.pitches_range[0], self.pitches_range[0] + 1)]
+        self.pitches: list[str] = [f"p{i}" for i in range(self.pitches_range[0], self.pitches_range[1] + 1)]
         self.rest: str = "rest"
         self.time_shift: str = "shift"
         self.bar: str = "bar"
@@ -159,8 +159,8 @@ class Vocab:
         for offset in sorted(offset_to_notes.keys()):
             tokens_to_add: list[str] = []
             if offset != 0:
-                tokens_to_add.append(self.time_shift)
-                tokens_to_add.append(f"d{offset - last_offset}")
+                tokens.append(self.time_shift)
+                tokens.append(f"d{offset - last_offset}")
             save_bar_at_current_offset: bool = False
             for note in offset_to_notes[offset]:
                 if isinstance(note, NoteModel):
@@ -169,12 +169,14 @@ class Vocab:
                 elif isinstance(note, RestModel) and self.encoding_settings.include_rests:
                     tokens_to_add.append(self.rest)
                     tokens_to_add.append(f"d{note.duration}")
-                elif isinstance(note, BarModel) and self.encoding_settings.include_bars:
+                elif isinstance(note, BarModel):
                     save_bar_at_current_offset = True
-            if save_bar_at_current_offset:
+            if self.encoding_settings.include_bars and save_bar_at_current_offset:
                 tokens_to_add = [self.bar] + tokens_to_add
             tokens.extend(tokens_to_add)
             last_offset = offset
+        pprint(offset_to_notes)
+        print(tokens)
         self._check_if_tokens_in_vocab(tokens)
         return " ".join(tokens)
 
@@ -189,9 +191,6 @@ class Vocab:
                 f"disallowed_tokens: {disallowed_tokens}"
             )
         return True
-
-    def get_tokenizer(self) -> None:
-        raise NotImplementedError()
 
     def _get_token_type(self, token: str) -> TokenType:
         index = self.all_possible_tokens.index(token)
@@ -209,7 +208,7 @@ class Vocab:
 
     def _key_signature_token_to_model(self, token: str) -> KeySignatureModel:
         _ = self.key_signatures.index(token)
-        n_sharps = token.split("_", maxsplit=1)[-1]
+        n_sharps = token.split("_")[-1]
         return KeySignatureModel(sharps=int(n_sharps))
 
     def _time_signature_token_to_model(self, token: str) -> TimeSignatureModel:
@@ -323,3 +322,6 @@ class Vocab:
                     decoding_errors.append(t)
             i += 1
         return offset_to_notes, clef, key_signature, time_signature, decoding_errors
+
+    def get_tokenizer(self) -> None:
+        raise NotImplementedError()
