@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union, cast
 
 import music21
-import music21.meter.base
+import music21.midi.translate
 
 from ai_music_generation.core.pydantic_models.instrument_types import InstrumentTypes
 from ai_music_generation.core.pydantic_models.musical_notation import (
@@ -81,7 +81,7 @@ class MidiEncoder:
         result_texts: list[str] = []
         offset_to_notes_list: list[dict[int, list[Union[NoteModel, RestModel, BarModel]]]] = []
         offset_to_notes: dict[int, list[Union[NoteModel, RestModel, BarModel]]] = defaultdict(list)
-        time_signature = music21.meter.base.TimeSignature(value="4/4")
+        time_signature = music21.meter.TimeSignature(value="4/4")
         time_signature_model = TimeSignatureModel(numerator=4, denominator=4)
         clef: music21.clef.Clef = music21.clef.NoClef()
         clef_model = ClefModel(sign="G", line=2, octaveChange=0)
@@ -92,7 +92,7 @@ class MidiEncoder:
             offset_to_notes = defaultdict(list)
             flattened_part = part.flatten()
             if flattened_part.timeSignature is None:
-                flattened_part.timeSignature = music21.meter.base.TimeSignature(value="4/4")
+                flattened_part.timeSignature = music21.meter.TimeSignature(value="4/4")
             for elem in part.flatten():
                 if isinstance(elem, music21.note.Note):
                     duration = self.get_note_chord_rest_duration_as_int(elem)
@@ -114,8 +114,8 @@ class MidiEncoder:
             if flattened_part.timeSignature is not None:
                 time_signature = flattened_part.timeSignature
             time_signature_model = TimeSignatureModel(
-                numerator=(time_signature.numerator if time_signature.numerator is not None else 4),
-                denominator=(time_signature.denominator if time_signature.denominator is not None else 4),
+                numerator=time_signature.numerator if time_signature.numerator is not None else 4,
+                denominator=time_signature.denominator if time_signature.denominator is not None else 4,
             )
             clef = (
                 flattened_part.clef
@@ -125,7 +125,7 @@ class MidiEncoder:
             clef_model = ClefModel(
                 sign=clef.sign if clef.sign is not None else "G",
                 line=clef.line if clef.line is not None else 2,
-                octaveChange=(clef.octaveChange if clef.octaveChange is not None else 0),
+                octaveChange=clef.octaveChange if clef.octaveChange is not None else 0,
             )
             key_signature = (
                 flattened_part.keySignature
@@ -138,7 +138,6 @@ class MidiEncoder:
 
             # Add bars to offsets
             if self.include_bars:
-                print(f"{highest_time}")
                 i = 0
                 current_bar_offset = self.duration_or_offset_to_int_enc(i * time_signature.barDuration.quarterLength)
                 while current_bar_offset < highest_time:
@@ -146,7 +145,6 @@ class MidiEncoder:
                     current_bar_offset = self.duration_or_offset_to_int_enc(
                         i * time_signature.barDuration.quarterLength
                     )
-                    print(f"============= {current_bar_offset}")
                     offset_to_notes[current_bar_offset].append(BarModel())
             if self.join_parts:
                 offset_to_notes_list.append(offset_to_notes)
@@ -155,8 +153,8 @@ class MidiEncoder:
                     self.vocab.offset_mapping_to_text(
                         offset_to_notes=offset_to_notes,
                         clef=clef_model if self.include_clef else None,
-                        key_signature=(key_signature_model if self.include_key_signature else None),
-                        time_signature=(time_signature_model if self.include_time_signature else None),
+                        key_signature=key_signature_model if self.include_key_signature else None,
+                        time_signature=time_signature_model if self.include_time_signature else None,
                     )
                 )
         if self.join_parts and len(score.parts) > 0:
@@ -168,8 +166,8 @@ class MidiEncoder:
                 self.vocab.offset_mapping_to_text(
                     offset_to_notes=offset_to_notes,
                     clef=clef_model if self.include_clef else None,
-                    key_signature=(key_signature_model if self.include_key_signature else None),
-                    time_signature=(time_signature_model if self.include_time_signature else None),
+                    key_signature=key_signature_model if self.include_key_signature else None,
+                    time_signature=time_signature_model if self.include_time_signature else None,
                 )
             )
         return result_texts
@@ -249,8 +247,8 @@ class MidiEncoder:
     def filter_allowed_parts(self, score: music21.stream.Score) -> list[music21.stream.Part]:
         accepted_parts = []
         for part in score.parts:
-            if bool(part.flatten().getElementsByClass(music21.note.Note)) or bool(
-                part.flatten().getElementsByClass(music21.chord.Chord)
+            if bool(part.recurse().getElementsByClass(music21.note.Note)) or bool(
+                part.recurse().getElementsByClass(music21.chord.Chord)
             ):
                 if self.is_allowed_part_instrument(part):
                     accepted_parts.append(part)
@@ -276,7 +274,7 @@ class MidiEncoder:
                 if not is_allowed:
                     return False
             elif instrument.midiChannel is not None:
-                if instrument.midiChannel == 10 and InstrumentTypes.PERCUSSIVE in self.allowed_instruments:
+                if instrument.midiChannel == 9 and InstrumentTypes.PERCUSSIVE in self.allowed_instruments:
                     pass
                 else:
                     return False

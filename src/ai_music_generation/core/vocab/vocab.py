@@ -50,8 +50,35 @@ class Vocab:
         self.time_signatures: list[str] = (  # Most common time signatures
             []
             if not self.encoding_settings.include_time_signature
-            else [f"time_signature_{i}" for i in ["2/4", "3/4", "4/4", "2/2", "6/8", "9/8", "12/8"]]
+            else [
+                f"time_signature_{i}"
+                for i in [
+                    "1/2,",
+                    "2/2",
+                    "3/2",
+                    "1/4",
+                    "2/4",
+                    "3/4",
+                    "4/4",
+                    "5/4",
+                    "6/4",
+                    "7/4",
+                    "1/8",
+                    "2/8",
+                    "3/8",
+                    "4/8",
+                    "5/8",
+                    "6/8",
+                    "7/8",
+                    "8/8",
+                    "9/8",
+                    "10/8",
+                    "11/8",
+                    "12/8",
+                ]
+            ]
         )
+        # [f"time_signature_{i}" for i in ["2/4", "3/4", "4/4", "2/2", "3/8", "6/8", "9/8", "12/8"]]
         self._clef_params = [  # Most common clefs
             ("G", 1, 0),
             ("G", 2, 0),
