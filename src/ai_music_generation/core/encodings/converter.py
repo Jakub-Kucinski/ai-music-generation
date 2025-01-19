@@ -1,6 +1,7 @@
 from collections import defaultdict
 from enum import StrEnum
 from fractions import Fraction
+from math import gcd, prod
 from pathlib import Path
 from typing import Any, Tuple, cast
 
@@ -9,7 +10,9 @@ import music21.meter
 from music21 import Music21Object
 from music21.chord import Chord
 from music21.clef import Clef
+from music21.common.numberTools import opFrac
 from music21.common.types import OffsetQL, OffsetQLIn
+from music21.duration import Duration, Tuplet
 from music21.key import KeySignature
 from music21.meter import TimeSignature
 from music21.note import GeneralNote, Note, NotRest, Rest
@@ -33,10 +36,18 @@ class TokenType(StrEnum):
 
 
 class TupletModel(BaseModel):
-    start_offset: float
+    start_offset: OffsetQL
     elements: list[Note | Chord | Rest]
-    current_end: Fraction
+    current_end_offset: OffsetQL
     # math.gcd(numerator, denominator)
+
+    @property
+    def normal_duration(self) -> OffsetQL:
+        return cast(OffsetQL, opFrac(self.current_end_offset - self.start_offset))
+
+    @property
+    def actual_duration(self) -> OffsetQL:
+        raise NotImplementedError()
 
 
 class MidiConverter:
@@ -234,7 +245,7 @@ class MidiConverter:
                         # and if so assign it to the existing tuplet or create a new one
                         # Check if after appending to existing tuplet its end is no longer a Fraction
                         # (if its length is representable in binary system)
-                        # At the end of this loop check if any tuplet current_end is lower then current offset
+                        # At the end of this loop check if any tuplet current_end_offset is lower then current offset
                         # If so, add this Tuplet (even if incompleted) to dict at its start_offset
 
                         # Handle tuplets - move this section to the _try_to_fix_broken_tuplets
@@ -251,8 +262,112 @@ class MidiConverter:
     def _try_to_fix_broken_tuplets(
         self,
         part: Part,
-    ) -> None:
-        raise NotImplementedError()
+    ) -> Tuple[list[TupletModel], list[TupletModel]]:
+        uncompleted_tuplets: list[TupletModel] = []
+        completed_tuplets: list[TupletModel] = []
+        partOffsetIterator: OffsetIterator = OffsetIterator(part)
+        for elementGroup in partOffsetIterator:
+            measure = None
+            for element in elementGroup:
+                if type(element) is Measure:
+                    measure = element
+                    break
+            if measure is None:
+                continue
+
+            measureOffsetIterator: OffsetIterator = OffsetIterator(measure)
+
+            for elements in measureOffsetIterator.getElementsByClass([Note, Chord, Rest]):
+                for element in elements:
+                    element = cast(Note | Chord | Rest, element)
+                    # Check if element is a part of a Tuplet
+                    # (i.e. if element.duration.tuplets list is not empty)
+                    # and if so assign it to the existing tuplet or create a new one
+                    # Check if after appending to existing tuplet its end is no longer a Fraction
+                    # (if its length is representable in binary system)
+                    # At the end of this loop check if any tuplet current_end_offset is lower then current offset
+                    # If so, add this Tuplet (even if incompleted) to dict at its start_offset
+
+                    # If offset is a fraction, then this element has to be added to an already created Tuplet
+                    if isinstance(element.offset, Fraction):
+                        for tuplet in uncompleted_tuplets:
+                            if opFrac(tuplet.current_end_offset) == opFrac(measure.offset + element.offset):
+                                tuplet.elements.append(element)
+                                break
+
+                    # If offset was not a fraction, but the duration is a fraction then
+                    # it belongs to a tuplet (probably beginning of a new one)
+                    elif isinstance(element.duration.quarterLength, Fraction):
+                        uncompleted_tuplets.append(
+                            TupletModel(
+                                start_offset=opFrac(measure.offset + element.offset),
+                                elements=[element],
+                                current_end_offset=opFrac(
+                                    opFrac(measure.offset + element.offset) + element.duration.quarterLength
+                                ),
+                            )
+                        )
+            new_uncompleted_tuplets: list[TupletModel] = []
+            for tuplet in uncompleted_tuplets:
+                if isinstance(tuplet.current_end_offset, Fraction):
+                    new_uncompleted_tuplets.append(tuplet)
+                else:
+                    completed_tuplets.append(tuplet)
+            uncompleted_tuplets = new_uncompleted_tuplets
+
+        for completed_tuplet in completed_tuplets:
+            # Iterate over all elements of tuplet and over all tuplets in these elements
+            # to get all tuplets multipliers / ratios
+            # Then iterate again over all elements and add missing tuplets ratios and fix durations accordingly
+            music21_tuplets: list[Tuplet] = []
+            current_ratios: list[Tuple[int, int]] = []
+            for element in completed_tuplet.elements:
+                current_actual = 1
+                current_normal = 1
+                for music21_tuplet in element.duration.tuplets:
+                    is_known = False
+                    current_actual *= music21_tuplet.numberNotesActual
+                    current_normal *= music21_tuplet.numberNotesNormal
+                    for known_music21_tuplet in music21_tuplets:
+                        if (
+                            music21_tuplet.numberNotesActual == known_music21_tuplet.numberNotesActual
+                            and music21_tuplet.numberNotesNormal == known_music21_tuplet.numberNotesNormal
+                        ):
+                            is_known = True
+                            break
+                    if not is_known:
+                        music21_tuplets.append(music21_tuplet)
+                current_ratios.append((current_actual, current_normal))
+
+            total_actual = prod(ratio[0] for ratio in current_ratios)
+            total_normal = prod(ratio[1] for ratio in current_ratios)
+            divisor = gcd(total_actual, total_normal)
+            total_actual //= divisor
+            total_normal //= divisor
+            # Update durations of all notes to the common tuplet ratio (total_actual, total_normal)
+            for element, (current_actual, current_normal) in zip(
+                completed_tuplet.elements, current_ratios, strict=True
+            ):
+                # TODO: Add updating durations of tuplet elements by changing duration and adding tuplet
+                new_duration = music21.duration.Duration(
+                    opFrac(
+                        element.duration.quarterLength
+                        * opFrac((current_normal * total_actual) / (current_actual * total_normal))
+                    )
+                )
+                element.duration = new_duration
+                for music21_tuplet in music21_tuplets:
+                    element.duration.appendTuplet(music21_tuplet)
+
+            # music21_tuplet = completed_tuplet.elements[0].duration.tuplets[0]
+            # if completed_tuplet.elements[0].duration.tuplets:
+            #     music21_tuplet = completed_tuplet.elements[0].duration.tuplets[0]
+            # else:
+            #     music21_tuplet = Tuplet(...)
+            # for element in completed_tuplet.elements:
+            #     if not element.duration.tuplets:
+            #         element.duration.appendTuplet(music21_tuplet)
+        return completed_tuplets, uncompleted_tuplets
 
     def _add_clef_key_or_time_signature_to_dict_if_changed(
         self,
@@ -287,7 +402,7 @@ class MidiConverter:
             if isinstance(element.offset, Fraction):
                 offset_to_result_elements[measure_offset].append(element)
             else:
-                offset_to_result_elements[element.offset].append(element)
+                offset_to_result_elements[opFrac(measure_offset + element.offset)].append(element)
 
     def filepath_to_texts(
         self,
