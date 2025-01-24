@@ -187,14 +187,15 @@ class MidiConverter:
         parts = self.filter_allowed_parts(score)
         for part in parts:
             updated_part = cast(Part, cast(Part, part.makeNotation()).makeRests(fillGaps=True))
-            self._try_to_fix_broken_tuplets(updated_part)
+            TODO_1, TODO_2 = self._try_to_fix_broken_tuplets(updated_part)
             updated_part.makeTies(inPlace=True)
 
             last_clef: Clef | None = None
             last_time_signature: TimeSignature | None = None
             last_key_signature: KeySignature | None = None
 
-            tuplets: list[TupletModel] = []
+            uncompleted_tuplets: list[TupletModel] = []
+            completed_tuplets: list[TupletModel] = []
 
             offset_to_result_elements: dict[
                 float, list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | TupletModel]
@@ -240,22 +241,33 @@ class MidiConverter:
                                 last_time_signature = element
                             continue
 
-                        # Check if element is a part of a Tuplet
-                        # (i.e. if element.duration.tuplets list is not empty)
-                        # and if so assign it to the existing tuplet or create a new one
-                        # Check if after appending to existing tuplet its end is no longer a Fraction
-                        # (if its length is representable in binary system)
-                        # At the end of this loop check if any tuplet current_end_offset is lower then current offset
-                        # If so, add this Tuplet (even if incompleted) to dict at its start_offset
-
-                        # Handle tuplets - move this section to the _try_to_fix_broken_tuplets
-                        # If offset is a fraction, then this element has to in an already created Tuplet
+                        # If offset is a fraction, then this element has to be added to an already created Tuplet
                         if isinstance(element.offset, Fraction):
-                            pass
-                        # If offset was not a fraction, but the
-                        elif isinstance(element.duration.quarterLength, Fraction):
-                            pass
+                            for tuplet in uncompleted_tuplets:
+                                if opFrac(tuplet.current_end_offset) == opFrac(measure.offset + element.offset):
+                                    tuplet.elements.append(element)
+                                    break
 
+                        # If offset was not a fraction, but the duration is a fraction then
+                        # it belongs to a tuplet (probably beginning of a new one)
+                        elif isinstance(element.duration.quarterLength, Fraction):
+                            uncompleted_tuplets.append(
+                                TupletModel(
+                                    start_offset=opFrac(measure.offset + element.offset),
+                                    elements=[element],
+                                    current_end_offset=opFrac(
+                                        opFrac(measure.offset + element.offset) + element.duration.quarterLength
+                                    ),
+                                )
+                            )
+                # TODO
+                # At the end of this loop check if any tuplet current_end_offset is lower then current offset
+                # If so, add this Tuplet (even if incompleted) to dict at its start_offset
+            # TODO:
+            # Convert offset_to_result_elements to text
+
+        # TODO:
+        # Maybe add saving info about instrument
         score_name_to_texts["score"] = []
         return score_name_to_texts
 
@@ -358,15 +370,6 @@ class MidiConverter:
                 element.duration = new_duration
                 for music21_tuplet in music21_tuplets:
                     element.duration.appendTuplet(music21_tuplet)
-
-            # music21_tuplet = completed_tuplet.elements[0].duration.tuplets[0]
-            # if completed_tuplet.elements[0].duration.tuplets:
-            #     music21_tuplet = completed_tuplet.elements[0].duration.tuplets[0]
-            # else:
-            #     music21_tuplet = Tuplet(...)
-            # for element in completed_tuplet.elements:
-            #     if not element.duration.tuplets:
-            #         element.duration.appendTuplet(music21_tuplet)
         return completed_tuplets, uncompleted_tuplets
 
     def _add_clef_key_or_time_signature_to_dict_if_changed(
