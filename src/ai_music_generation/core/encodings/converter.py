@@ -50,6 +50,11 @@ class TupletModel(BaseModel):
         raise NotImplementedError()
 
 
+class BarModel(BaseModel):
+    bar_duration_quarterLength: OffsetQL
+    real_duration_quarterLength: OffsetQL
+
+
 class MidiConverter:
     def __init__(
         self,
@@ -195,31 +200,39 @@ class MidiConverter:
             last_key_signature: KeySignature | None = None
 
             uncompleted_tuplets: list[TupletModel] = []
-            completed_tuplets: list[TupletModel] = []
 
             offset_to_result_elements: dict[
-                float, list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | TupletModel]
+                float | Fraction,
+                list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | TupletModel | BarModel],
             ] = defaultdict(list)
 
             partOffsetIterator: OffsetIterator = OffsetIterator(updated_part)
             for elementGroup in partOffsetIterator:
                 measure = None
-                for element in elementGroup:
-                    if type(element) is Measure:
-                        measure = element
+                for possible_measure in elementGroup:
+                    if type(possible_measure) is Measure:
+                        measure = possible_measure
                         break
                 if measure is None:
                     continue
 
                 if isinstance(measure.offset, Fraction):
                     continue
+                offset_to_result_elements[measure.offset].append(
+                    BarModel(
+                        bar_duration_quarterLength=measure.barDuration.quarterLength,
+                        real_duration_quarterLength=measure.duration.quarterLength,
+                    )
+                )
                 measureOffsetIterator: OffsetIterator = OffsetIterator(measure)
 
                 for elements in measureOffsetIterator.getElementsByClass(
                     [Clef, KeySignature, TimeSignature, Note, Chord, Rest]
                 ):
+                    current_loop_offset = measure.offset
                     for element in elements:
                         element = cast(Clef | KeySignature | TimeSignature | Note | Chord | Rest, element)
+                        current_loop_offset = element.offset
                         if (
                             isinstance(element, Clef)
                             or isinstance(element, KeySignature)
@@ -247,7 +260,6 @@ class MidiConverter:
                                 if opFrac(tuplet.current_end_offset) == opFrac(measure.offset + element.offset):
                                     tuplet.elements.append(element)
                                     break
-
                         # If offset was not a fraction, but the duration is a fraction then
                         # it belongs to a tuplet (probably beginning of a new one)
                         elif isinstance(element.duration.quarterLength, Fraction):
@@ -260,9 +272,19 @@ class MidiConverter:
                                     ),
                                 )
                             )
-                # TODO
-                # At the end of this loop check if any tuplet current_end_offset is lower then current offset
-                # If so, add this Tuplet (even if incompleted) to dict at its start_offset
+                        # Normal case
+                        else:
+                            offset_to_result_elements[element.offset].append(element)
+
+                    # At the end of this loop check if any tuplet current_end_offset is lower then current offset
+                    # If so, add this Tuplet (even if incompleted) to dict at its start_offset
+                    _uncompleted_tuplets: list[TupletModel] = []
+                    for tuplet in uncompleted_tuplets:
+                        if tuplet.current_end_offset < current_loop_offset:
+                            offset_to_result_elements[tuplet.start_offset].append(tuplet)
+                        else:
+                            _uncompleted_tuplets.append(tuplet)
+                    uncompleted_tuplets = _uncompleted_tuplets
             # TODO:
             # Convert offset_to_result_elements to text
 
@@ -270,6 +292,52 @@ class MidiConverter:
         # Maybe add saving info about instrument
         score_name_to_texts["score"] = []
         return score_name_to_texts
+
+    def _convert_offset_dict_to_text(
+        self,
+        offset_to_result_elements: dict[
+            float | Fraction,
+            list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | TupletModel | BarModel],
+        ],
+    ) -> str:
+        tokens: list[str] = []
+        offsets = sorted(offset_to_result_elements.keys())
+        for offset in offsets:
+            if isinstance(offset, Fraction):
+                continue
+            elements = offset_to_result_elements[offset]
+            offset_int = self.duration_or_offset_to_int_enc(offset)
+            tokens.append(f"o{offset_int}")
+            clef = next((element for element in elements if isinstance(element, Clef)), None)
+            if clef is not None:
+                tokens.append(f"clef_{clef.sign}_{clef.line}_{clef.octaveChange}")
+            key_signature = next((element for element in elements if isinstance(element, KeySignature)), None)
+            if key_signature is not None:
+                tokens.append(f"key_signature_{key_signature.sharps}")
+            time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
+            if time_signature is not None:
+                tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
+            bar = next((element for element in elements if isinstance(element, BarModel)), None)
+            if bar is not None:
+                tokens.append(self.bar)
+            for element in elements:
+                if isinstance(element, Note):
+                    tokens.append(f"p{element.pitch.midi}")
+                    duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
+                    tokens.append(f"d{duration_int}")
+                elif isinstance(element, Rest):
+                    tokens.append(self.rest)
+                    duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
+                    tokens.append(f"d{duration_int}")
+                elif isinstance(element, Chord):
+                    for pitch in element.pitches:
+                        tokens.append(f"p{pitch.midi}")
+                    duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
+                    tokens.append(f"d{duration_int}")
+                elif isinstance(element, TupletModel):
+                    raise NotImplementedError()
+
+        raise NotImplementedError()
 
     def _try_to_fix_broken_tuplets(
         self,
@@ -377,7 +445,9 @@ class MidiConverter:
         last_clef: Clef | None,
         last_key_signature: KeySignature | None,
         last_time_signature: TimeSignature | None,
-        offset_to_result_elements: dict[float, list[Any]],
+        offset_to_result_elements: dict[
+            float | Fraction, list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | TupletModel | BarModel]
+        ],
         element: Clef | KeySignature | TimeSignature,
         measure_offset: float,
     ) -> None:
@@ -443,3 +513,22 @@ class MidiConverter:
                 return False
         # If loop ended and there was at least 1 instrument, we mark this part as allowed
         return n_instruments > 0
+
+    def duration_or_offset_to_int_enc(self, quarterLength: float | Fraction) -> int:
+        duration_as_int = quarterLength * (self.settings.shortest_note_duration / 4)
+        if not duration_as_int.is_integer():
+            raise ValueError(
+                f"Encountered note whose duration {quarterLength / 4} couldn't be "
+                "represented as integer multiple of "
+                f"self.settings.shortest_note_duration {self.settings.shortest_note_duration}"
+            )
+        if quarterLength > self.settings.longest_note_duration * 4:
+            raise ValueError(
+                f"Encountered note whose duration ({quarterLength / 4} in whole notes, "
+                f"{quarterLength} in quarterLength) is bigger than "
+                f"self.settings.longest_note_duration {self.settings.longest_note_duration}"
+            )
+        return int(duration_as_int)
+
+    def int_enc_to_quarterLength(self, int_enc: int) -> float:
+        return int_enc * 4 / self.settings.shortest_note_duration
