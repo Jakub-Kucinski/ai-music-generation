@@ -18,7 +18,7 @@ from music21.meter import TimeSignature
 from music21.note import GeneralNote, Note, NotRest, Rest
 from music21.stream import Measure, Opus, Part, Score, Stream
 from music21.stream.iterator import OffsetIterator
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from ai_music_generation.core.encodings.encoding_settings import EncodingSetting
 from ai_music_generation.core.pydantic_models.instrument_types import InstrumentTypes
@@ -41,18 +41,25 @@ class TupletModel(BaseModel):
     current_end_offset: OffsetQL
     # math.gcd(numerator, denominator)
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @property
     def normal_duration(self) -> OffsetQL:
         return cast(OffsetQL, opFrac(self.current_end_offset - self.start_offset))
 
     @property
     def actual_duration(self) -> OffsetQL:
-        raise NotImplementedError()
+        act_duration: OffsetQL = 0
+        for element in self.elements:
+            act_duration = opFrac(act_duration + element.duration.quarterLengthNoTuplets)
+        return act_duration
 
 
 class BarModel(BaseModel):
     bar_duration_quarterLength: OffsetQL
     real_duration_quarterLength: OffsetQL
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class MidiConverter:
@@ -73,6 +80,8 @@ class MidiConverter:
         self.rest: str = "rest"
         self.time_shift: str = "shift"
         self.bar: str = "bar"
+        self.tuplet_start: str = "tuplet_start"
+        self.tuplet_end: str = "tuplet_end"
 
         self.time_signatures: list[str] = (  # Most common time signatures
             []
@@ -173,12 +182,14 @@ class MidiConverter:
     def stream_to_texts(
         self,
         stream: Opus | Score | Part,
+        file_name: str,
     ) -> dict[str, list[str]]:
         score_name_to_texts: dict[str, list[str]] = {}
-
+        # TODO:
+        # Maybe add saving info about instrument
         if type(stream) is Opus:
             for i, score in enumerate(stream.scores):
-                single_score_name_to_texts = self.stream_to_texts(score)
+                single_score_name_to_texts = self.stream_to_texts(score, f"{file_name}_{i}")
                 for score_name, texts in single_score_name_to_texts.items():
                     score_name_to_texts[f"{score_name}_{i}"] = texts
             return score_name_to_texts
@@ -285,12 +296,12 @@ class MidiConverter:
                         else:
                             _uncompleted_tuplets.append(tuplet)
                     uncompleted_tuplets = _uncompleted_tuplets
-            # TODO:
-            # Convert offset_to_result_elements to text
 
-        # TODO:
-        # Maybe add saving info about instrument
-        score_name_to_texts["score"] = []
+            text = self._convert_offset_dict_to_text(offset_to_result_elements=offset_to_result_elements)
+            if file_name not in score_name_to_texts:
+                score_name_to_texts[file_name] = [text]
+            else:
+                score_name_to_texts[file_name].append(text)
         return score_name_to_texts
 
     def _convert_offset_dict_to_text(
@@ -302,30 +313,36 @@ class MidiConverter:
     ) -> str:
         tokens: list[str] = []
         offsets = sorted(offset_to_result_elements.keys())
+        is_first_bar: bool = True
+        element = None
         for offset in offsets:
             if isinstance(offset, Fraction):
                 continue
             elements = offset_to_result_elements[offset]
-            offset_int = self.duration_or_offset_to_int_enc(offset)
-            tokens.append(f"o{offset_int}")
             clef = next((element for element in elements if isinstance(element, Clef)), None)
-            if clef is not None:
+            if clef is not None and self.settings.include_clef:
                 tokens.append(f"clef_{clef.sign}_{clef.line}_{clef.octaveChange}")
             key_signature = next((element for element in elements if isinstance(element, KeySignature)), None)
-            if key_signature is not None:
+            if key_signature is not None and self.settings.include_key_signature:
                 tokens.append(f"key_signature_{key_signature.sharps}")
             time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
-            if time_signature is not None:
+            if time_signature is not None and self.settings.include_time_signature:
                 tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
+            if self.settings.include_offset:
+                offset_int = self.duration_or_offset_to_int_enc(offset)
+                tokens.append(f"o{offset_int}")
             bar = next((element for element in elements if isinstance(element, BarModel)), None)
-            if bar is not None:
-                tokens.append(self.bar)
+            if bar is not None and self.settings.include_bars:
+                if is_first_bar:
+                    is_first_bar = False
+                else:
+                    tokens.append(self.bar)
             for element in elements:
                 if isinstance(element, Note):
                     tokens.append(f"p{element.pitch.midi}")
                     duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
                     tokens.append(f"d{duration_int}")
-                elif isinstance(element, Rest):
+                elif isinstance(element, Rest) and self.settings.include_rests:
                     tokens.append(self.rest)
                     duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
                     tokens.append(f"d{duration_int}")
@@ -335,9 +352,29 @@ class MidiConverter:
                     duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
                     tokens.append(f"d{duration_int}")
                 elif isinstance(element, TupletModel):
-                    raise NotImplementedError()
-
-        raise NotImplementedError()
+                    tokens.append(self.tuplet_start)
+                    duration_normal = self.duration_or_offset_to_int_enc(element.normal_duration)
+                    actual_duration = self.duration_or_offset_to_int_enc(element.actual_duration)
+                    tokens.append(f"d{duration_normal}")
+                    tokens.append(f"d{actual_duration}")
+                    tokens.append(self.tuplet_end)
+        # Add last bar
+        if self.settings.include_bars and element is not None:
+            if isinstance(element, TupletModel):
+                if self.settings.include_offset:
+                    offset_int = self.duration_or_offset_to_int_enc(element.current_end_offset)
+                    tokens.append(f"o{offset_int}")
+                tokens.append(self.bar)
+            elif isinstance(element, BarModel):
+                pass
+            else:
+                if element.duration.quarterLength > 0 and self.settings.include_offset:
+                    offset_int = self.duration_or_offset_to_int_enc(
+                        opFrac(element.offset + element.duration.quarterLength)
+                    )
+                    tokens.append(f"o{offset_int}")
+                tokens.append(self.bar)
+        return " ".join(tokens)
 
     def _try_to_fix_broken_tuplets(
         self,
@@ -482,7 +519,7 @@ class MidiConverter:
         midi_path: Path,
     ) -> dict[str, list[str]]:
         stream = music21.converter.parseFile(midi_path)
-        score_name_to_texts = self.stream_to_texts(stream)
+        score_name_to_texts = self.stream_to_texts(stream, midi_path.name)
         return score_name_to_texts
 
     def filter_allowed_parts(self, score: Score) -> list[Part]:

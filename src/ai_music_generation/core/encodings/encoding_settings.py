@@ -14,6 +14,7 @@ class EncodingSetting(BaseModel):
     include_clef: bool = True
     include_key_signature: bool = True
     include_time_signature: bool = True
+    include_offset: bool = True
     join_parts: bool = False
     notes_range: Tuple[int, int] = PIANO_RANGE
     shortest_note_duration: int = 32  # 1/n, shortest accepted note duration (Nth)
