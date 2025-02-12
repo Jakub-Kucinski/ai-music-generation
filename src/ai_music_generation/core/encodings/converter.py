@@ -347,6 +347,11 @@ class MidiConverter:
                         is_first_bar = False
                     else:
                         tokens.append(self.bar)
+                if any(isinstance(element, (Note, Chord, TupletModel)) for element in elements) or (
+                    self.settings.include_rests and any(isinstance(element, Rest) for element in elements)
+                ):
+                    tokens.append("o0")
+
             for element in elements:
                 if isinstance(element, Note):
                     tokens.append(f"p{element.pitch.midi}")
