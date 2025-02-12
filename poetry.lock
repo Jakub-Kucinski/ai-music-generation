@@ -2817,6 +2817,17 @@ files = [
 ]
 
 [[package]]
+name = "midi2audio"
+version = "0.1.1"
+description = "Easy to use MIDI to audio or playback via FluidSynth"
+optional = false
+python-versions = "*"
+files = [
+    {file = "midi2audio-0.1.1-py2.py3-none-any.whl", hash = "sha256:762a2df3806d373f7f89962f22ecc6d3cb49f82ae4212fab560a479cbb6c9c08"},
+    {file = "midi2audio-0.1.1.tar.gz", hash = "sha256:b26590388e1f62753096b075b877e2529ff62faad00c07811ac8111a73e4a78a"},
+]
+
+[[package]]
 name = "miditoolkit"
 version = "1.0.1"
 description = "A python package for working with MIDI data files."
@@ -5910,4 +5921,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "edd99340e084c86a6e85ee50bca67231ec2f4045d87c7541cdac2cea42e64e2a"
+content-hash = "fd538b405e6725464980c47f78cdc63eb750005c69d6a3250d2f167a08563c5e"
