@@ -15,6 +15,7 @@ class EncodingSetting(BaseModel):
     include_key_signature: bool = True
     include_time_signature: bool = True
     include_offset: bool = True
+    include_offset_in_tuplets: bool = True
     join_parts: bool = False
     notes_range: Tuple[int, int] = PIANO_RANGE
     shortest_note_duration: int = 32  # 1/n, shortest accepted note duration (Nth)
@@ -28,5 +29,6 @@ class EncodingSetting(BaseModel):
             ]
         )
     )
+    raise_duration_errors: bool = False
 
     model_config = ConfigDict(frozen=True)

@@ -7,6 +7,8 @@ from typing import Any, Tuple, cast
 
 import music21
 import music21.meter
+from devtools import pprint
+from loguru import logger
 from music21 import Music21Object
 from music21.chord import Chord
 from music21.clef import Clef
@@ -79,7 +81,7 @@ class MidiConverter:
         self.pitches: list[str] = [f"p{i}" for i in range(self.pitches_range[0], self.pitches_range[1] + 1)]
         self.rest: str = "rest"
         self.time_shift: str = "shift"
-        self.bar: str = "bar"
+        self.bar: str = "|"
         self.tuplet_start: str = "tuplet_start"
         self.tuplet_end: str = "tuplet_end"
 
@@ -270,6 +272,9 @@ class MidiConverter:
                             for tuplet in uncompleted_tuplets:
                                 if opFrac(tuplet.current_end_offset) == opFrac(measure.offset + element.offset):
                                     tuplet.elements.append(element)
+                                    tuplet.current_end_offset = opFrac(
+                                        tuplet.current_end_offset + element.duration.quarterLength
+                                    )
                                     break
                         # If offset was not a fraction, but the duration is a fraction then
                         # it belongs to a tuplet (probably beginning of a new one)
@@ -285,13 +290,13 @@ class MidiConverter:
                             )
                         # Normal case
                         else:
-                            offset_to_result_elements[element.offset].append(element)
+                            offset_to_result_elements[opFrac(measure.offset + element.offset)].append(element)
 
                     # At the end of this loop check if any tuplet current_end_offset is lower then current offset
                     # If so, add this Tuplet (even if incompleted) to dict at its start_offset
                     _uncompleted_tuplets: list[TupletModel] = []
                     for tuplet in uncompleted_tuplets:
-                        if tuplet.current_end_offset < current_loop_offset:
+                        if tuplet.current_end_offset <= opFrac(measure.offset + current_loop_offset):
                             offset_to_result_elements[tuplet.start_offset].append(tuplet)
                         else:
                             _uncompleted_tuplets.append(tuplet)
@@ -315,10 +320,13 @@ class MidiConverter:
         offsets = sorted(offset_to_result_elements.keys())
         is_first_bar: bool = True
         element = None
+        bar_offset: float = 0
         for offset in offsets:
             if isinstance(offset, Fraction):
                 continue
             elements = offset_to_result_elements[offset]
+            in_bar_offset = opFrac(offset - bar_offset)
+
             clef = next((element for element in elements if isinstance(element, Clef)), None)
             if clef is not None and self.settings.include_clef:
                 tokens.append(f"clef_{clef.sign}_{clef.line}_{clef.octaveChange}")
@@ -329,40 +337,54 @@ class MidiConverter:
             if time_signature is not None and self.settings.include_time_signature:
                 tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
             if self.settings.include_offset:
-                offset_int = self.duration_or_offset_to_int_enc(offset)
+                offset_int = self.duration_or_offset_to_int_enc(in_bar_offset)
                 tokens.append(f"o{offset_int}")
             bar = next((element for element in elements if isinstance(element, BarModel)), None)
-            if bar is not None and self.settings.include_bars:
-                if is_first_bar:
-                    is_first_bar = False
-                else:
-                    tokens.append(self.bar)
+            if bar is not None:
+                bar_offset = offset
+                if self.settings.include_bars:
+                    if is_first_bar:
+                        is_first_bar = False
+                    else:
+                        tokens.append(self.bar)
             for element in elements:
                 if isinstance(element, Note):
                     tokens.append(f"p{element.pitch.midi}")
-                    duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
-                    tokens.append(f"d{duration_int}")
+                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
                 elif isinstance(element, Rest) and self.settings.include_rests:
                     tokens.append(self.rest)
-                    duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
-                    tokens.append(f"d{duration_int}")
+                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
                 elif isinstance(element, Chord):
                     for pitch in element.pitches:
                         tokens.append(f"p{pitch.midi}")
-                    duration_int = self.duration_or_offset_to_int_enc(element.duration.quarterLength)
-                    tokens.append(f"d{duration_int}")
+                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
                 elif isinstance(element, TupletModel):
                     tokens.append(self.tuplet_start)
-                    duration_normal = self.duration_or_offset_to_int_enc(element.normal_duration)
-                    actual_duration = self.duration_or_offset_to_int_enc(element.actual_duration)
-                    tokens.append(f"d{duration_normal}")
-                    tokens.append(f"d{actual_duration}")
+                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.normal_duration)}")
+                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.actual_duration)}")
+                    in_tuplet_offset = 0
+                    for note_or_rest in element.elements:
+                        if self.settings.include_offset_in_tuplets:
+                            tokens.append(f"o{self.duration_or_offset_to_int_enc(in_tuplet_offset)}")
+                        in_tuplet_offset = opFrac(in_tuplet_offset + note_or_rest.duration.quarterLengthNoTuplets)
+                        if isinstance(note_or_rest, Note):
+                            tokens.append(f"p{note_or_rest.pitch.midi}")
+                        elif isinstance(note_or_rest, Rest) and self.settings.include_rests:
+                            tokens.append(self.rest)
+                        elif isinstance(element, Chord):
+                            for pitch in element.pitches:
+                                tokens.append(f"p{pitch.midi}")
+                        else:
+                            continue
+                        tokens.append(
+                            f"d{self.duration_or_offset_to_int_enc(note_or_rest.duration.quarterLengthNoTuplets)}"
+                        )
                     tokens.append(self.tuplet_end)
         # Add last bar
         if self.settings.include_bars and element is not None:
             if isinstance(element, TupletModel):
                 if self.settings.include_offset:
-                    offset_int = self.duration_or_offset_to_int_enc(element.current_end_offset)
+                    offset_int = self.duration_or_offset_to_int_enc(opFrac(element.current_end_offset - bar_offset))
                     tokens.append(f"o{offset_int}")
                 tokens.append(self.bar)
             elif isinstance(element, BarModel):
@@ -554,17 +576,25 @@ class MidiConverter:
     def duration_or_offset_to_int_enc(self, quarterLength: float | Fraction) -> int:
         duration_as_int = quarterLength * (self.settings.shortest_note_duration / 4)
         if not duration_as_int.is_integer():
-            raise ValueError(
+            error_message = (
                 f"Encountered note whose duration {quarterLength / 4} couldn't be "
                 "represented as integer multiple of "
                 f"self.settings.shortest_note_duration {self.settings.shortest_note_duration}"
             )
+            logger.warning(error_message)
+            if self.settings.raise_duration_errors:
+                raise ValueError(error_message)
+            return max(1, int(duration_as_int))
         if quarterLength > self.settings.longest_note_duration * 4:
-            raise ValueError(
+            error_message = (
                 f"Encountered note whose duration ({quarterLength / 4} in whole notes, "
                 f"{quarterLength} in quarterLength) is bigger than "
                 f"self.settings.longest_note_duration {self.settings.longest_note_duration}"
             )
+            logger.warning(error_message)
+            if self.settings.raise_duration_errors:
+                raise ValueError(error_message)
+            return self.settings.longest_note_duration * 4
         return int(duration_as_int)
 
     def int_enc_to_quarterLength(self, int_enc: int) -> float:
