@@ -231,6 +231,10 @@ class MidiConverter:
 
                 if isinstance(measure.offset, Fraction):
                     continue
+
+                if measure.hasVoices():
+                    measure.flattenUnnecessaryVoices(force=True, inPlace=True)
+
                 offset_to_result_elements[measure.offset].append(
                     BarModel(
                         bar_duration_quarterLength=measure.barDuration.quarterLength,
@@ -336,19 +340,24 @@ class MidiConverter:
             time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
             if time_signature is not None and self.settings.include_time_signature:
                 tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
+
             if self.settings.include_offset:
                 offset_int = self.duration_or_offset_to_int_enc(in_bar_offset)
                 tokens.append(f"o{offset_int}")
             bar = next((element for element in elements if isinstance(element, BarModel)), None)
             if bar is not None:
                 bar_offset = offset
+                was_first_bar = False
                 if self.settings.include_bars:
                     if is_first_bar:
                         is_first_bar = False
+                        was_first_bar = True
                     else:
                         tokens.append(self.bar)
                 if any(isinstance(element, (Note, Chord, TupletModel)) for element in elements) or (
-                    self.settings.include_rests and any(isinstance(element, Rest) for element in elements)
+                    self.settings.include_rests
+                    and any(isinstance(element, Rest) for element in elements)
+                    and not was_first_bar
                 ):
                     tokens.append("o0")
 
@@ -376,8 +385,8 @@ class MidiConverter:
                             tokens.append(f"p{note_or_rest.pitch.midi}")
                         elif isinstance(note_or_rest, Rest) and self.settings.include_rests:
                             tokens.append(self.rest)
-                        elif isinstance(element, Chord):
-                            for pitch in element.pitches:
+                        elif isinstance(note_or_rest, Chord):
+                            for pitch in note_or_rest.pitches:
                                 tokens.append(f"p{pitch.midi}")
                         else:
                             continue
