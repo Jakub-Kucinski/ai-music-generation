@@ -21,6 +21,11 @@ music21 = "^8.0"
 pydantic = "^2.8.2"
 loguru = "^0.7.2"
 midi2audio = "^0.1.1"
+tqdm = "^4.67.1"
+numpy = "^2.2.3"
+torch = "^2.6.0"
+types-tqdm = "^4.67.0.20241221"
+transformers = {extras = ["torch"], version = "^4.49.0"}
 
 [tool.poetry.group.lint]
 optional = true
