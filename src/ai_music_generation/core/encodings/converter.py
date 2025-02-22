@@ -229,11 +229,13 @@ class MidiConverter:
                 if measure is None:
                     continue
 
+                if measure.hasVoices():
+                    measure.flattenUnnecessaryVoices(force=False, inPlace=True)
+                    if measure.hasVoices():
+                        measure = cast(Measure, measure.chordify())
+
                 if isinstance(measure.offset, Fraction):
                     continue
-
-                if measure.hasVoices():
-                    measure.flattenUnnecessaryVoices(force=True, inPlace=True)
 
                 offset_to_result_elements[measure.offset].append(
                     BarModel(
@@ -324,12 +326,11 @@ class MidiConverter:
         offsets = sorted(offset_to_result_elements.keys())
         is_first_bar: bool = True
         element = None
-        bar_offset: float = 0
+        measure_offset: float = 0
         for offset in offsets:
             if isinstance(offset, Fraction):
                 continue
             elements = offset_to_result_elements[offset]
-            in_bar_offset = opFrac(offset - bar_offset)
 
             clef = next((element for element in elements if isinstance(element, Clef)), None)
             if clef is not None and self.settings.include_clef:
@@ -341,25 +342,25 @@ class MidiConverter:
             if time_signature is not None and self.settings.include_time_signature:
                 tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
 
-            if self.settings.include_offset:
-                offset_int = self.duration_or_offset_to_int_enc(in_bar_offset)
-                tokens.append(f"o{offset_int}")
             bar = next((element for element in elements if isinstance(element, BarModel)), None)
             if bar is not None:
-                bar_offset = offset
-                was_first_bar = False
                 if self.settings.include_bars:
                     if is_first_bar:
                         is_first_bar = False
-                        was_first_bar = True
                     else:
+                        offset_int = self.duration_or_offset_to_int_enc(opFrac(offset - measure_offset))
+                        tokens.append(f"o{offset_int}")
                         tokens.append(self.bar)
-                if any(isinstance(element, (Note, Chord, TupletModel)) for element in elements) or (
-                    self.settings.include_rests
-                    and any(isinstance(element, Rest) for element in elements)
-                    and not was_first_bar
-                ):
-                    tokens.append("o0")
+                measure_offset = offset
+
+            in_bar_offset = opFrac(offset - measure_offset)
+            if (
+                self.settings.include_offset
+                and any(isinstance(element, (Note, Chord, TupletModel)) for element in elements)
+                or (self.settings.include_rests and any(isinstance(element, Rest) for element in elements))
+            ):
+                offset_int = self.duration_or_offset_to_int_enc(in_bar_offset)
+                tokens.append(f"o{offset_int}")
 
             for element in elements:
                 if isinstance(element, Note):
@@ -398,7 +399,7 @@ class MidiConverter:
         if self.settings.include_bars and element is not None:
             if isinstance(element, TupletModel):
                 if self.settings.include_offset:
-                    offset_int = self.duration_or_offset_to_int_enc(opFrac(element.current_end_offset - bar_offset))
+                    offset_int = self.duration_or_offset_to_int_enc(opFrac(element.current_end_offset - measure_offset))
                     tokens.append(f"o{offset_int}")
                 tokens.append(self.bar)
             elif isinstance(element, BarModel):
