@@ -3,26 +3,10 @@ import os
 from typing import cast
 
 import numpy as np
-
-# from transformers.models.auto.tokenization_auto import AutoTokenizer
-from transformers.models.gpt2.tokenization_gpt2_fast import GPT2TokenizerFast
-
-# from tokenizers import (
-#     Tokenizer,
-#     decoders,
-#     models,
-#     normalizers,
-#     pre_tokenizers,
-#     processors,
-#     trainers,
-# )
+from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 VOCAB_SIZE = 1024
-old_tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-
-# tokenizer = Tokenizer(models.BPE())
-# tokenizer.normalizer = normalizers.Strip()
-# tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel()
+old_tokenizer = BertTokenizerFast.from_pretrained("bert-base-cased")
 
 # Define the data directory
 data_dir = "data/02_preprocessed/irishman"
@@ -50,12 +34,12 @@ valid_texts = " ".join(entry["abc notation"] for entry in valid_data)
 
 # Train new tokenizer
 texts = [entry["abc notation"] for entry in train_data + valid_data]
-tokenizer = cast(GPT2TokenizerFast, old_tokenizer.train_new_from_iterator([texts], VOCAB_SIZE))
+tokenizer = cast(BertTokenizerFast, old_tokenizer.train_new_from_iterator([texts], VOCAB_SIZE))
 
 
 def encode_text(s: str) -> list[int]:
     encoding = tokenizer.encode(s)
-    encoding.append(tokenizer.vocab["<|endoftext|>"])
+    encoding.append(tokenizer.vocab["[SEP]"])
     return encoding  # type: ignore
 
 

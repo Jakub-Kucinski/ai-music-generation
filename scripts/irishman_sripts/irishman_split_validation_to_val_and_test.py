@@ -36,7 +36,7 @@ split_json_file(
     os.path.join(folder, "validation.json"), os.path.join(folder, "val.json"), os.path.join(folder, "test.json")
 )
 
-# Split leadsheet_validation.json into val_leadsheet.json and test_leadsheet.json
+# Split validation_leadsheet.json into val_leadsheet.json and test_leadsheet.json
 split_json_file(
     os.path.join(folder, "validation_leadsheet.json"),
     os.path.join(folder, "val_leadsheet.json"),

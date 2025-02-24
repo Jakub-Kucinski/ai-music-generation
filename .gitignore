@@ -162,3 +162,6 @@ notebooks/*.ipynb
 
 # Legacy code
 legacy/*
+
+
+nanoGPT/out-irishman-char

@@ -6,21 +6,23 @@ import numpy as np
 
 # Define the data directory
 data_dir = "data/02_preprocessed/irishman"
+train_file = "train_leadsheet.json"
+validation_file = "validation_leadsheet.json"
 
 # 1. Load the data from the specified directory
-with open(os.path.join(data_dir, "train.json"), "r") as f:
+with open(os.path.join(data_dir, train_file), "r") as f:
     train_data = json.load(f)
 
-with open(os.path.join(data_dir, "validation.json"), "r") as f:
+with open(os.path.join(data_dir, validation_file), "r") as f:
     valid_data = json.load(f)
 
-# 2. Prepend "<start> " and append " <end>" to each "abc notation"
+
 for entry in train_data:
     # Strip any surrounding whitespace to be safe
-    entry["abc notation"] = "<start> " + entry["abc notation"].strip() + " <end>"
+    entry["abc notation"] = entry["abc notation"].strip() + " $"
 
 for entry in valid_data:
-    entry["abc notation"] = "<start> " + entry["abc notation"].strip() + " <end>"
+    entry["abc notation"] = entry["abc notation"].strip() + " $"
 
 # 3. Join all "abc notation" strings from train and from validation using a space
 train_text = " ".join(entry["abc notation"] for entry in train_data)
@@ -32,12 +34,12 @@ valid_text = " ".join(entry["abc notation"] for entry in valid_data)
 output_dir = "data/02_preprocessed/irishman"
 os.makedirs(output_dir, exist_ok=True)
 
-# Write the texts to files
-with open(os.path.join(output_dir, "train_text.txt"), "w") as f:
-    f.write(train_text)
+# # Write the texts to files
+# with open(os.path.join(output_dir, "train_text.txt"), "w") as f:
+#     f.write(train_text)
 
-with open(os.path.join(output_dir, "valid_text.txt"), "w") as f:
-    f.write(valid_text)
+# with open(os.path.join(output_dir, "valid_text.txt"), "w") as f:
+#     f.write(valid_text)
 
 # 4. Split both texts by whitespace into lists
 train_tokens = train_text.split()
@@ -72,8 +74,8 @@ print(f"train has {len(train_ids):,} tokens")
 print(f"val has {len(val_ids):,} tokens")
 
 # export to bin files
-train_ids_np = np.array(train_ids, dtype=np.uint16)
-val_ids_np = np.array(val_ids, dtype=np.uint16)
+train_ids_np = np.array(train_ids, dtype=np.uint32)
+val_ids_np = np.array(val_ids, dtype=np.uint32)
 train_ids_np.tofile(os.path.join(os.path.dirname(__file__), "train.bin"))
 val_ids_np.tofile(os.path.join(os.path.dirname(__file__), "val.bin"))
 
@@ -85,3 +87,19 @@ meta = {
 }
 with open(os.path.join(os.path.dirname(__file__), "meta.pkl"), "wb") as file:
     pickle.dump(meta, file)
+
+# train_file = "train.json"
+# validation_file = "validation.json"
+# Vocabulary size: 296611
+# Sample itos mapping: {0: '[dF]>[FA,]', 1: 'Ad-dc', 2: 'Bcd"^(E)"', 3: '(2:3:2(f/g/f/)e', 4: "a>c'g"}
+# Sample stoi mapping: {'[dF]>[FA,]': 0, 'Ad-dc': 1, 'Bcd"^(E)"': 2, '(2:3:2(f/g/f/)e': 3, "a>c'g": 4}
+# train has 16,563,575 tokens
+# val has 167,185 tokens
+
+# train_file = "train_leadsheet.json"
+# validation_file = "validation_leadsheet.json"
+# Vocabulary size: 98465
+# Sample itos mapping: {0: 'bg', 1: 'F,C', 2: 'g/g/a/a/', 3: 'AGE2', 4: 'f3"Eb"'}
+# Sample stoi mapping: {'bg': 0, 'F,C': 1, 'g/g/a/a/': 2, 'AGE2': 3, 'f3"Eb"': 4}
+# train has 3,104,971 tokens
+# val has 28,605 tokens
