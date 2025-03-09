@@ -5,6 +5,7 @@ Sample from a trained model
 import json
 import os
 import pickle
+import re
 import subprocess
 from contextlib import nullcontext
 
@@ -13,6 +14,12 @@ import torch
 from model import GPT, GPTConfig
 
 text_type = "abc"
+save_wav = True
+calculate_aesthetics = True
+use_validation_prefixes = True
+dataset = "irishman"
+validation_file = "../data/02_preprocessed/irishman/validation_leadsheet.json"
+n_conditional_measures = 1
 # -----------------------------------------------------------------------------
 init_from = "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 out_dir = "out"  # ignored if init_from is not 'resume'
@@ -26,7 +33,7 @@ device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1', etc.
 dtype = (
     "bfloat16" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "float16"
 )  # 'float32' or 'bfloat16' or 'float16'
-compile = False  # use PyTorch 2.0 to compile the model to be faster
+compile = True  # use PyTorch 2.0 to compile the model to be faster
 exec(open("configurator.py").read())  # overrides from command line or config file
 # -----------------------------------------------------------------------------
 
@@ -86,8 +93,23 @@ else:
 if start.startswith("FILE:"):
     with open(start[5:], "r", encoding="utf-8") as f:
         start = f.read()
-start_ids = encode(start)
-x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
+
+
+generator = ((i, start) for i in range(num_samples))
+if use_validation_prefixes:
+    if dataset == "irishman":
+        # Load JSON data
+        with open(validation_file, "r") as f:
+            leadsheets = json.load(f)
+        regex = re.compile(r"(:\||::|\s\||\|\])")
+        prefixes: list[tuple[int, str]] = []
+        for sheet in leadsheets:
+            id = sheet.get("id")
+            abc_notation = sheet.get("abc notation")
+            splitted_notation = regex.split(abc_notation)
+            prefixes.append((id, "".join(splitted_notation[: n_conditional_measures * 2])))
+        generator = (e for e in prefixes)
+
 
 # run generation
 with torch.no_grad():
@@ -95,56 +117,60 @@ with torch.no_grad():
         wav_paths = []
         output_dir = os.path.join(out_dir, "samples")
         os.makedirs(output_dir, exist_ok=True)
-        for k in range(num_samples):
+        for k, prefix in generator:
+            start_ids = encode(prefix)
+            x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
             res = decode(y[0].tolist())
             print(res)
-            print("---------------")
+            print("-" * 50)
             file_name = os.path.join(output_dir, f"sample_{k}.abc")
             midi_name = file_name.rstrip("abc") + "mid"
             wav_name = file_name.rstrip("abc") + "wav"
             normalized_res = f"X:{k}\n" + res.split("$")[1].strip()
             with open(file_name, "w") as f:
                 f.write(normalized_res)
-            if text_type == "abc":
-                # Execute a command and capture its output
-                result = subprocess.run(
-                    [
-                        "abc2midi",
-                        file_name,
-                        "-o",
-                        midi_name,
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                # Print the output from the command
-                print(result.stdout)
-                result = subprocess.run(
-                    [
-                        "timidity",
-                        midi_name,
-                        "-Ow",
-                        "-o",
-                        wav_name,
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                # Print the output from the command
-                print(result.stdout)
-                wav_paths.append(os.path.abspath(wav_name))
+            if save_wav:
+                if text_type == "abc":
+                    # Execute a command and capture its output
+                    result = subprocess.run(
+                        [
+                            "abc2midi",
+                            file_name,
+                            "-o",
+                            midi_name,
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    # Print the output from the command
+                    print(result.stdout)
+                    result = subprocess.run(
+                        [
+                            "timidity",
+                            midi_name,
+                            "-Ow",
+                            "-o",
+                            wav_name,
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    # Print the output from the command
+                    print(result.stdout)
+                    wav_paths.append(os.path.abspath(wav_name))
 
-        aesthetics_folder = os.path.join(out_dir, "audiobox_aesthetics")
-        os.makedirs(aesthetics_folder, exist_ok=True)
-        input_jsonl_filename = os.path.join(aesthetics_folder, "wav_paths.jsonl")
-        output_jsonl_filename = os.path.join(aesthetics_folder, "aesthetics.jsonl")
-        # Write the collected WAV file paths to the JSONL file
-        with open(input_jsonl_filename, "w") as out_file:
-            for path in wav_paths:
-                json_line = json.dumps({"path": path})
-                out_file.write(json_line + "\n")
+        if calculate_aesthetics:
+            aesthetics_folder = os.path.join(out_dir, "audiobox_aesthetics")
+            os.makedirs(aesthetics_folder, exist_ok=True)
+            input_jsonl_filename = os.path.join(aesthetics_folder, "wav_paths.jsonl")
+            output_jsonl_filename = os.path.join(aesthetics_folder, "aesthetics.jsonl")
+            # Write the collected WAV file paths to the JSONL file
+            with open(input_jsonl_filename, "w") as out_file:
+                for path in wav_paths:
+                    json_line = json.dumps({"path": path})
+                    out_file.write(json_line + "\n")
 
-        print(f"\nWAV file paths saved to {input_jsonl_filename}")
-        with open(output_jsonl_filename, "w") as outfile:
-            subprocess.run(["audio-aes", input_jsonl_filename, "--batch-size", "10"], stdout=outfile)
+            print(f"\nWAV file paths saved to {input_jsonl_filename}")
+            with open(output_jsonl_filename, "w") as outfile:
+                subprocess.run(["audio-aes", input_jsonl_filename, "--batch-size", "10"], stdout=outfile)
