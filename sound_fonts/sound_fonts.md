@@ -114,8 +114,40 @@ First one is multi-instrument. The remaining two are piano only.
     }
 }
 
+#### Generated conditioned 1 bar - Essential Keys-sforzando-v9.6.sf2
+{
+    "mean":{
+        "CE":7.298081234,
+        "CU":8.0629930648,
+        "PC":2.9891451088,
+        "PQ":8.1587234682
+    },
+    "std":{
+        "CE":0.1960247631,
+        "CU":0.0839721731,
+        "PC":0.3007960443,
+        "PQ":0.084377473
+    }
+}
 
-# music21 corpus
+#### Generated conditioned 4 bar - Essential Keys-sforzando-v9.6.sf2
+{
+    "mean":{
+        "CE":7.2972727004,
+        "CU":8.0622486658,
+        "PC":2.9990397426,
+        "PQ":8.1529903928
+    },
+    "std":{
+        "CE":0.2120021659,
+        "CU":0.0913737128,
+        "PC":0.2986198129,
+        "PQ":0.0918446436
+    }
+}
+
+
+# Classical Music MIDI
 
 
 

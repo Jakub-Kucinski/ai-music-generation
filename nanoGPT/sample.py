@@ -6,7 +6,6 @@ import json
 import os
 import pickle
 import re
-import subprocess
 from contextlib import nullcontext
 
 import tiktoken
@@ -14,12 +13,10 @@ import torch
 from model import GPT, GPTConfig
 
 text_type = "abc"
-save_wav = True
-calculate_aesthetics = True
 use_validation_prefixes = True
 dataset = "irishman"
 validation_file = "../data/02_preprocessed/irishman/validation_leadsheet.json"
-n_conditional_measures = 1
+n_conditional_measures = 4
 # -----------------------------------------------------------------------------
 init_from = "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 out_dir = "out"  # ignored if init_from is not 'resume'
@@ -107,7 +104,7 @@ if use_validation_prefixes:
             id = sheet.get("id")
             abc_notation = sheet.get("abc notation")
             splitted_notation = regex.split(abc_notation)
-            prefixes.append((id, "".join(splitted_notation[: n_conditional_measures * 2])))
+            prefixes.append((id, start + "".join(splitted_notation[: n_conditional_measures * 2])))
         generator = (e for e in prefixes)
 
 
@@ -125,52 +122,6 @@ with torch.no_grad():
             print(res)
             print("-" * 50)
             file_name = os.path.join(output_dir, f"sample_{k}.abc")
-            midi_name = file_name.rstrip("abc") + "mid"
-            wav_name = file_name.rstrip("abc") + "wav"
             normalized_res = f"X:{k}\n" + res.split("$")[1].strip()
             with open(file_name, "w") as f:
                 f.write(normalized_res)
-            if save_wav:
-                if text_type == "abc":
-                    # Execute a command and capture its output
-                    result = subprocess.run(
-                        [
-                            "abc2midi",
-                            file_name,
-                            "-o",
-                            midi_name,
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-                    # Print the output from the command
-                    print(result.stdout)
-                    result = subprocess.run(
-                        [
-                            "timidity",
-                            midi_name,
-                            "-Ow",
-                            "-o",
-                            wav_name,
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-                    # Print the output from the command
-                    print(result.stdout)
-                    wav_paths.append(os.path.abspath(wav_name))
-
-        if calculate_aesthetics:
-            aesthetics_folder = os.path.join(out_dir, "audiobox_aesthetics")
-            os.makedirs(aesthetics_folder, exist_ok=True)
-            input_jsonl_filename = os.path.join(aesthetics_folder, "wav_paths.jsonl")
-            output_jsonl_filename = os.path.join(aesthetics_folder, "aesthetics.jsonl")
-            # Write the collected WAV file paths to the JSONL file
-            with open(input_jsonl_filename, "w") as out_file:
-                for path in wav_paths:
-                    json_line = json.dumps({"path": path})
-                    out_file.write(json_line + "\n")
-
-            print(f"\nWAV file paths saved to {input_jsonl_filename}")
-            with open(output_jsonl_filename, "w") as outfile:
-                subprocess.run(["audio-aes", input_jsonl_filename, "--batch-size", "10"], stdout=outfile)

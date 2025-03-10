@@ -14,7 +14,7 @@ from tqdm import tqdm
 abc_to_midi_converter: Literal["music21", "abc2midi"] = "abc2midi"
 midi_to_wav_converter: Literal["Timidity", "FluidSynth"] = "FluidSynth"
 sound_fonts_dir = "sound_fonts"
-sound_font: str | None = "Dore Mark's Yamaha S6-v1.6.sf2"
+sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 # sound_font: str | None = None
 sample_rate = 16_000
 

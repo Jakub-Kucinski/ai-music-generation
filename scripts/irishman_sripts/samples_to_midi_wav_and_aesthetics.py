@@ -18,8 +18,8 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 # Define paths
-abc_input_folder = "data/04_generated/unconditioned_samples"  # Folder containing already created ABC files
-base_output_dir = "data/04_generated/unconditioned_samples"
+abc_input_folder = "data/04_generated/conditioned_4_bars/abc"  # Folder containing already created ABC files
+base_output_dir = "data/04_generated/conditioned_4_bars"
 os.makedirs(base_output_dir, exist_ok=True)
 
 # Create subdirectories for MIDI and WAV outputs
