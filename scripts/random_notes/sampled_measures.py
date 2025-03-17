@@ -6,7 +6,7 @@ import re
 from tqdm import tqdm
 
 NUM_FILES = 100  # Number of ABC files to generate
-OUTPUT_DIR = "data/04_generated/randomly_sampled_measures/abc"
+OUTPUT_DIR = "data/04_generated/sampled_measures/abc"
 
 JSON_FILE_PATH = "data/02_preprocessed/irishman/validation_leadsheet.json"
 NUM_MEASURES = 32
@@ -42,9 +42,14 @@ def load_abc_entries(json_file: str) -> tuple[list[str], list[str]]:
     return descriptions, measures
 
 
-def create_new_abc(descriptions: list[str], measures: list[str], num_measures: int = 8) -> str:
+def create_new_abc(descriptions: list[str], measures: list[str], idx: int, num_measures: int) -> str:
     # Randomly select one description from the list
     selected_description = random.choice(descriptions)
+    match = re.search(r"^X:\s*(\d+)", selected_description, flags=re.MULTILINE)
+    if match:
+        selected_description = re.sub(r"^X:\s*(\d+)", f"X:{idx}", selected_description, flags=re.MULTILINE)
+    else:
+        selected_description = f"X:{idx}\n" + selected_description
     # Randomly select measures (with replacement)
     selected_measures = [random.choice(measures) for _ in range(num_measures)]
     # Join the selected measures with a bar symbol
@@ -64,7 +69,7 @@ if __name__ == "__main__":
 
         # Generate and save multiple ABC files
         for i in tqdm(range(NUM_FILES)):
-            new_abc = create_new_abc(descriptions, measures, NUM_MEASURES)
+            new_abc = create_new_abc(descriptions, measures, i + 1, NUM_MEASURES)
             file_path = os.path.join(OUTPUT_DIR, f"file_{i+1}.abc")
             with open(file_path, "w") as f:
                 f.write(new_abc)

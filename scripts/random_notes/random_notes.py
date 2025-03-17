@@ -8,7 +8,7 @@ from tqdm import tqdm
 MIN_NOTES = 1
 MAX_NOTES = 4
 MIN_TOTAL_NOTES = 64
-OUTPUT_DIR = "data/04_generated/repeated_notes/abc"
+OUTPUT_DIR = "data/04_generated/random_notes/abc"
 NUM_FILES = 100
 
 # Single list of distinct notes
@@ -57,30 +57,32 @@ def generate_random_notes(num_notes: int, notes: list[str]) -> list[str]:
     return result
 
 
-def create_abc_content(i: int, note_sequence: list[str], repetitions: int, time_sig: str, key_sig: str) -> str:
-    """Create an ABC file content with a header and a body that repeats the note sequence.
+def create_abc_content(i: int, measures: list[str], time_sig: str, key_sig: str) -> str:
+    """Create an ABC file content with a header and a body that concatenates random measures.
 
     The header includes time signature, default note length, and key signature.
     """
     header = [f"X:{i}", "L:1/4", f"M:{time_sig}", f"K:{key_sig}"]
-    sequence_str = " ".join(note_sequence)
-    body = " | ".join([sequence_str] * repetitions)
+    body = " | ".join(measures)
     return "\n".join(header) + "\n" + body
 
 
 def main() -> None:
-    import math
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     for i in tqdm(range(NUM_FILES)):
         selected_time_signature = random.choice(TIME_SIGNATURES)
         selected_key_signature = random.choice(KEY_SIGNATURES)
-        num_notes = random.randint(MIN_NOTES, MAX_NOTES)
-        repetitions = math.ceil(MIN_TOTAL_NOTES / num_notes)
 
-        note_sequence = generate_random_notes(num_notes, NOTES)
-        new_abc = create_abc_content(i + 1, note_sequence, repetitions, selected_time_signature, selected_key_signature)
+        measures = []
+        total_notes = 0
+        while total_notes < MIN_TOTAL_NOTES:
+            measure_length = random.randint(MIN_NOTES, MAX_NOTES)
+            measure_notes = generate_random_notes(measure_length, NOTES)
+            measures.append(" ".join(measure_notes))
+            total_notes += measure_length
+
+        new_abc = create_abc_content(i + 1, measures, selected_time_signature, selected_key_signature)
 
         file_path = os.path.join(OUTPUT_DIR, f"file_{i+1}.abc")
         with open(file_path, "w") as f:

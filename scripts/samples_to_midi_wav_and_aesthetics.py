@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import multiprocessing
 import os
 import re
 import subprocess
@@ -18,8 +19,8 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 # Define paths
-abc_input_folder = "data/04_generated/conditioned_4_bars/abc"  # Folder containing already created ABC files
-base_output_dir = "data/04_generated/conditioned_4_bars"
+abc_input_folder = "data/04_generated/random_notes/abc"
+base_output_dir = "data/04_generated/random_notes"
 os.makedirs(base_output_dir, exist_ok=True)
 
 # Create subdirectories for MIDI and WAV outputs
@@ -50,11 +51,8 @@ output_aggregated_aesthetics = os.path.join(audiobox_dir, "aesthetics_aggregated
 # List to collect the absolute WAV file paths
 wav_paths = []
 
-# Get a list of all ABC files in the input folder
-abc_files = sorted([f for f in os.listdir(abc_input_folder) if f.endswith(".abc")])
 
-# Process each ABC file
-for abc_filename in tqdm(abc_files):
+def process_abc_file(abc_filename: str) -> str:
     abc_file_path = os.path.join(abc_input_folder, abc_filename)
     with open(abc_file_path, "r") as file:
         abc_content = file.read()
@@ -65,7 +63,7 @@ for abc_filename in tqdm(abc_files):
         idx = match.group(1)
     else:
         # Fallback: use the file name (without extension) as the index
-        idx = os.path.splitext(abc_filename)[0]
+        idx = os.path.splitext(abc_filename)[0].split("_")[-1]
 
     # Define output file paths
     midi_file_path = os.path.join(midi_output_dir, f"file_{idx}.mid")
@@ -88,28 +86,36 @@ for abc_filename in tqdm(abc_files):
             fs = FluidSynth(sample_rate=sample_rate)
         fs.midi_to_audio(midi_file_path, wav_file_path)
 
-    # Append the absolute WAV file path to the list
-    wav_paths.append(os.path.abspath(wav_file_path))
+    return os.path.abspath(wav_file_path)
 
-# Write the collected WAV file paths to a JSONL file
-with open(input_jsonl_filename, "w") as out_file:
-    for path in wav_paths:
-        json_line = json.dumps({"path": path})
-        out_file.write(json_line + "\n")
 
-print(f"\nWAV file paths saved to {input_jsonl_filename}")
+if __name__ == "__main__":
+    # Get a list of all ABC files in the input folder
+    abc_files = sorted([f for f in os.listdir(abc_input_folder) if f.endswith(".abc")])
 
-# Run the aesthetics calculation and write output to a JSONL file
-with open(output_jsonl_filename, "w") as outfile:
-    subprocess.run(["audio-aes", input_jsonl_filename, "--batch-size", "10"], stdout=outfile)
+    # Process each ABC file using multiprocessing
+    with multiprocessing.Pool() as pool:
+        wav_paths = list(tqdm(pool.imap(process_abc_file, abc_files), total=len(abc_files)))
 
-# Load the aesthetics JSONL file into a DataFrame
-df = pd.read_json(output_jsonl_filename, lines=True)
+    # Write the collected WAV file paths to a JSONL file
+    with open(input_jsonl_filename, "w") as out_file:
+        for path in wav_paths:
+            json_line = json.dumps({"path": path})
+            out_file.write(json_line + "\n")
 
-# Compute mean and standard deviation for selected aesthetic columns
-stats = df[["CE", "CU", "PC", "PQ"]].agg(["mean", "std"])
+    print(f"\nWAV file paths saved to {input_jsonl_filename}")
 
-# Save the aggregated aesthetics statistics to a JSON file
-stats.to_json(output_aggregated_aesthetics, orient="index", indent=4)
+    # Run the aesthetics calculation and write output to a JSONL file
+    with open(output_jsonl_filename, "w") as outfile:
+        subprocess.run(["audio-aes", input_jsonl_filename, "--batch-size", "10"], stdout=outfile)
 
-print(stats)
+    # Load the aesthetics JSONL file into a DataFrame
+    df = pd.read_json(output_jsonl_filename, lines=True)
+
+    # Compute mean and standard deviation for selected aesthetic columns
+    stats = df[["CE", "CU", "PC", "PQ"]].agg(["mean", "std"])
+
+    # Save the aggregated aesthetics statistics to a JSON file
+    stats.to_json(output_aggregated_aesthetics, orient="index", indent=4)
+
+    print(stats)
