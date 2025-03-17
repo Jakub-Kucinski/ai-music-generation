@@ -51,7 +51,7 @@ output_aggregated_aesthetics = os.path.join(audiobox_dir, "aesthetics_aggregated
 wav_paths = []
 
 # Get a list of all ABC files in the input folder
-abc_files = [f for f in os.listdir(abc_input_folder) if f.endswith(".abc")]
+abc_files = sorted([f for f in os.listdir(abc_input_folder) if f.endswith(".abc")])
 
 # Process each ABC file
 for abc_filename in tqdm(abc_files):

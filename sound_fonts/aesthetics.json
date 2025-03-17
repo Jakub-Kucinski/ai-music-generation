@@ -1,0 +1,164 @@
+[
+    {
+        "midi2wav": "Timidity",
+        "font": "default",
+        "dataset": "irishman",
+        "version": "ground_truth",
+        "mean":{
+            "CE":6.878050054,
+            "CU":8.0499581258,
+            "PC":3.3227923979,
+            "PQ":8.2262334383
+        },
+        "std":{
+            "CE":0.2675768117,
+            "CU":0.1048214959,
+            "PC":0.355999168,
+            "PQ":0.0589081366
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "default",
+        "dataset": "irishman",
+        "version": "ground_truth",
+        "mean":{
+            "CE":7.3659734073,
+            "CU":8.1077765112,
+            "PC":2.5960385192,
+            "PQ":8.1439042577
+        },
+        "std":{
+            "CE":0.2604419865,
+            "CU":0.1018250322,
+            "PC":0.1886188668,
+            "PQ":0.1163181461
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "ground_truth",
+        "mean":{
+            "CE":7.3531057166,
+            "CU":8.0711502254,
+            "PC":3.0192789135,
+            "PQ":8.153516692
+        },
+        "std":{
+            "CE":0.220099216,
+            "CU":0.1022807862,
+            "PC":0.2992645409,
+            "PQ":0.0997618841
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Dore Mark's NY S&S Model B-v5.2.sf2",
+        "dataset": "irishman",
+        "version": "ground_truth",
+        "mean":{
+            "CE":7.401210381,
+            "CU":8.0778867181,
+            "PC":2.7490442156,
+            "PQ":8.1740913983
+        },
+        "std":{
+            "CE":0.2232336177,
+            "CU":0.0987114592,
+            "PC":0.2213433758,
+            "PQ":0.0981627502
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Dore Mark's Yamaha S6-v1.6.sf2",
+        "dataset": "irishman",
+        "version": "ground_truth",
+        "mean":{
+            "CE":7.3908025125,
+            "CU":8.0750708944,
+            "PC":3.0752466287,
+            "PQ":8.1035785888
+        },
+        "std":{
+            "CE":0.222845443,
+            "CU":0.0973015985,
+            "PC":0.2894520642,
+            "PQ":0.0928103159
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "unconditioned",
+        "mean":{
+            "CE":7.3078579473,
+            "CU":8.0686697578,
+            "PC":3.0098073006,
+            "PQ":8.1558931065
+        },
+        "std":{
+            "CE":0.1785665657,
+            "CU":0.0862256964,
+            "PC":0.2897062765,
+            "PQ":0.0854360361
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "conditioned 1 bar",
+        "mean":{
+            "CE":7.3078579473,
+            "CU":8.0686697578,
+            "PC":3.0098073006,
+            "PQ":8.1558931065
+        },
+        "std":{
+            "CE":0.1785665657,
+            "CU":0.0862256964,
+            "PC":0.2897062765,
+            "PQ":0.0854360361
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "conditioned 4 bars",
+        "mean":{
+            "CE":7.2972727004,
+            "CU":8.0622486658,
+            "PC":2.9990397426,
+            "PQ":8.1529903928
+        },
+        "std":{
+            "CE":0.2120021659,
+            "CU":0.0913737128,
+            "PC":0.2986198129,
+            "PQ":0.0918446436
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "Classical Music MIDI",
+        "version": "ground_truth",
+        "mean":{
+            "CE":7.3209911289,
+            "CU":7.9761356765,
+            "PC":3.2449078482,
+            "PQ":7.9686587794
+        },
+        "std":{
+            "CE":0.4292571578,
+            "CU":0.1473609229,
+            "PC":0.370160967,
+            "PQ":0.1559569542
+        }
+    }
+]

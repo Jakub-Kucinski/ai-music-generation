@@ -147,7 +147,34 @@ First one is multi-instrument. The remaining two are piano only.
 }
 
 
-# Classical Music MIDI
+# Classical Music MIDI -  Essential Keys-sforzando-v9.6.sf2
+{
+    "mean":{
+        "CE":7.3209911289,
+        "CU":7.9761356765,
+        "PC":3.2449078482,
+        "PQ":7.9686587794
+    },
+    "std":{
+        "CE":0.4292571578,
+        "CU":0.1473609229,
+        "PC":0.370160967,
+        "PQ":0.1559569542
+    }
+}
 
-
-
+# Irishman - Essential Keys-sforzando-v9.6.sf2
+{
+    "mean":{
+        "CE":7.3531057166,
+        "CU":8.0711502254,
+        "PC":3.0192789135,
+        "PQ":8.153516692
+    },
+    "std":{
+        "CE":0.220099216,
+        "CU":0.1022807862,
+        "PC":0.2992645409,
+        "PQ":0.0997618841
+    }
+}
