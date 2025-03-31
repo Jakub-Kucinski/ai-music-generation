@@ -160,5 +160,59 @@
             "PC":0.370160967,
             "PQ":0.1559569542
         }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "random_notes",
+        "mean":{
+            "CE":6.6672703552,
+            "CU":7.7499380064,
+            "PC":2.0916479087,
+            "PQ":7.9699459171
+        },
+        "std":{
+            "CE":0.1039259509,
+            "CU":0.0507994699,
+            "PC":0.0293219041,
+            "PQ":0.0430869546
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "repeated_notes",
+        "mean":{
+            "CE":5.5158623028,
+            "CU":7.5451435947,
+            "PC":1.8867285597,
+            "PQ":7.8603641748
+        },
+        "std":{
+            "CE":0.9109537754,
+            "CU":0.2276311256,
+            "PC":0.1104695238,
+            "PQ":0.2195960837
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "irishman",
+        "version": "sampled_measures",
+        "mean":{
+            "CE":7.4933422375,
+            "CU":8.1015881586,
+            "PC":3.0200879478,
+            "PQ":8.1810743523
+        },
+        "std":{
+            "CE":0.192077037,
+            "CU":0.071745216,
+            "PC":0.3175981384,
+            "PQ":0.0506487131
+        }
     }
 ]
