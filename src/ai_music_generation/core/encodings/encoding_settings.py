@@ -17,6 +17,7 @@ class EncodingSetting(BaseModel):
     include_offset: bool = True
     include_offset_in_tuplets: bool = True
     joining_parts_strategy: Literal["Join measures", "Queue parallel measures"] = "Queue parallel measures"
+    skip_measures_without_notes: bool = False
     notes_range: Tuple[int, int] = PIANO_RANGE
     shortest_note_duration: int = 16  # 1/n, shortest accepted note duration (Nth)
     longest_note_duration: int = 2  # n, longest accepted note duration (N whole notes)

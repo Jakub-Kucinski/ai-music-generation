@@ -1,7 +1,8 @@
+import re
 from collections import defaultdict
 from enum import StrEnum
 from fractions import Fraction
-from math import gcd, prod
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Tuple, cast
 
@@ -44,7 +45,7 @@ class BarModel(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class MidiConverter:
+class MidiQuantizedConverter:
     def __init__(
         self,
         settings: EncodingSetting = EncodingSetting(),
@@ -166,20 +167,30 @@ class MidiConverter:
             )
         return all_possible_tokens, tokens_types
 
+    def filepath_to_texts(
+        self,
+        midi_path: Path,
+    ) -> dict[str, str]:
+        stream = music21.converter.parseFile(
+            midi_path, quantizePost=True, quarterLengthDivisors=self._get_quarterLengthDivisors()
+        )
+        score_name_to_text = self.stream_to_texts(stream, midi_path.name)
+        return score_name_to_text
+
     def stream_to_texts(
         self,
         stream: Opus | Score | Part,
         file_name: str,
-    ) -> dict[str, list[str]]:
-        score_name_to_texts: dict[str, list[str]] = {}
+    ) -> dict[str, str]:
+        score_name_to_text: dict[str, str] = {}
         # TODO:
         # Maybe add saving info about instrument
         if type(stream) is Opus:
             for i, score in enumerate(stream.scores):
-                single_score_name_to_texts = self.stream_to_texts(score, f"{file_name}_{i}")
-                for score_name, texts in single_score_name_to_texts.items():
-                    score_name_to_texts[f"{score_name}"] = texts
-            return score_name_to_texts
+                single_score_name_to_text = self.stream_to_texts(score, f"{file_name}_{i}")
+                for score_name, text in single_score_name_to_text.items():
+                    score_name_to_text[f"{score_name}"] = text
+            return score_name_to_text
         elif type(stream) is Score:
             score = stream
         elif type(stream) is Part:
@@ -191,24 +202,30 @@ class MidiConverter:
         parts = self.filter_allowed_parts(score)
         if len(parts) == 0:
             return {}
-        parts_offset_to_result_elements: list[
-            dict[
-                float | Fraction,
-                list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+        parts_measures_dicts: list[
+            list[
+                dict[
+                    float | Fraction,
+                    list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+                ]
             ]
         ] = []
         for part in parts:
-            updated_part = cast(Part, cast(Part, part.makeNotation()).makeRests(fillGaps=True))
+            # updated_part = cast(Part, cast(Part, part.makeNotation()).makeRests(fillGaps=True))
+            updated_part = cast(Part, part.makeNotation())
             updated_part.makeTies(inPlace=True)
+            # updated_part.show("text", addEndTimes=True)
 
             last_clef: Clef | None = None
             last_time_signature: TimeSignature | None = None
             last_key_signature: KeySignature | None = None
 
-            offset_to_result_elements: dict[
-                float | Fraction,
-                list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
-            ] = defaultdict(list)
+            measures_dicts: list[
+                dict[
+                    float | Fraction,
+                    list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+                ]
+            ] = []
 
             partOffsetIterator: OffsetIterator = OffsetIterator(updated_part)
             for elementGroup in partOffsetIterator:
@@ -228,12 +245,10 @@ class MidiConverter:
                 if isinstance(measure.offset, Fraction):
                     continue
 
-                offset_to_result_elements[measure.offset].append(
-                    BarModel(
-                        bar_duration_quarterLength=measure.barDuration.quarterLength,
-                        real_duration_quarterLength=measure.duration.quarterLength,
-                    )
-                )
+                measure_offset_dict: dict[
+                    float | Fraction,
+                    list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+                ] = defaultdict(list)
                 measureOffsetIterator: OffsetIterator = OffsetIterator(measure)
 
                 for elements in measureOffsetIterator.getElementsByClass(
@@ -250,9 +265,8 @@ class MidiConverter:
                                 last_clef,
                                 last_key_signature,
                                 last_time_signature,
-                                offset_to_result_elements,
+                                measure_offset_dict,
                                 element,
-                                measure.offset,
                             )
                             if isinstance(element, Clef):
                                 last_clef = element
@@ -261,153 +275,336 @@ class MidiConverter:
                             elif isinstance(element, TimeSignature):
                                 last_time_signature = element
                             continue
-
-                        offset_to_result_elements[cast(OffsetQL, opFrac(measure.offset + element.offset))].append(
-                            element
-                        )
-            parts_offset_to_result_elements.append(offset_to_result_elements)
-        text = self._convert_offset_dicts_to_text(parts_offset_to_result_elements=parts_offset_to_result_elements)
-        score_name_to_texts[file_name] = [text]
-        return score_name_to_texts
+                        measure_offset_dict[element.offset].append(element)
+                measure_offset_dict[measure.offset].append(
+                    BarModel(
+                        bar_duration_quarterLength=measure.barDuration.quarterLength,
+                        real_duration_quarterLength=measure.duration.quarterLength,
+                    )
+                )
+                measures_dicts.append(measure_offset_dict)
+            parts_measures_dicts.append(measures_dicts)
+            # pprint(measures_dicts)
+        text = self._convert_offset_dicts_to_text(parts_measures_dicts=parts_measures_dicts)
+        score_name_to_text[file_name] = text
+        return score_name_to_text
 
     def _convert_offset_dicts_to_text(
         self,
-        parts_offset_to_result_elements: list[
-            dict[
-                float | Fraction,
-                list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
-            ],
+        parts_measures_dicts: list[
+            list[
+                dict[
+                    float | Fraction,
+                    list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+                ]
+            ]
         ],
     ) -> str:
         if self.settings.joining_parts_strategy == "Join measures":
-            return self._convert_offset_dicts_to_text_by_joining_measures(parts_offset_to_result_elements)
+            return self._convert_offset_dicts_to_text_by_joining_measures(parts_measures_dicts)
         elif self.settings.joining_parts_strategy == "Queue parallel measures":
-            return self._convert_offset_dicts_to_text_by_queuing_parallel_measures(parts_offset_to_result_elements)
+            return self._convert_offset_dicts_to_text_by_queuing_parallel_measures(parts_measures_dicts)
         else:
             raise ValueError(f"Got unexpected joining_parts_strategy {self.settings.joining_parts_strategy}")
 
     def _convert_offset_dicts_to_text_by_queuing_parallel_measures(
         self,
-        parts_offset_to_result_elements: list[
-            dict[
-                float | Fraction,
-                list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
-            ],
+        parts_measures_dicts: list[
+            list[
+                dict[
+                    float | Fraction,
+                    list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+                ]
+            ]
         ],
     ) -> str:
-        # Sort dicts
-        sorted_offsets: list[list[float | Fraction]] = [
-            sorted(offset_dict.keys()) for offset_dict in parts_offset_to_result_elements
-        ]
-
-        # Get offsets of bars in all parts
-        all_bars_offsets: list[list[float | Fraction]] = [[] for _ in parts_offset_to_result_elements]
-        for offsets, bars_offsets, offset_to_result_elements in zip(
-            sorted_offsets, all_bars_offsets, parts_offset_to_result_elements, strict=True
-        ):
-            for offset in offsets:
-                elements = offset_to_result_elements[offset]
-                bar = next((element for element in elements if isinstance(element, BarModel)), None)
-                if bar is not None:
-                    bars_offsets.append(offset)
-
+        n_measures = max(len(part_measures) for part_measures in parts_measures_dicts)
         tokens: list[str] = []
-        is_first_bar: bool = True
-        for offset_to_result_elements in parts_offset_to_result_elements:
-            pass
-        raise NotImplementedError()
+        for measure_number in range(n_measures):
+            is_any_non_empty_measure: bool = False
+            time_signature: TimeSignature | None = None
+            bar_model: BarModel | None = None
+            for measures_dicts in parts_measures_dicts:
+                if len(measures_dicts) <= measure_number:
+                    continue
+
+                measure_offset_dict = measures_dicts[measure_number]
+                if self.settings.skip_measures_without_notes and not any(
+                    isinstance(element, (Note, Chord))
+                    for list_of_elements in measure_offset_dict.values()
+                    for element in list_of_elements
+                ):
+                    continue
+
+                is_any_non_empty_measure = True
+                offsets = sorted(measure_offset_dict.keys())
+                for offset in offsets:
+                    elements = measure_offset_dict[offset]
+
+                    clef = next((element for element in elements if isinstance(element, Clef)), None)
+                    if clef is not None and self.settings.include_clef:
+                        tokens.append(f"clef_{clef.sign}_{clef.line}_{clef.octaveChange}")
+                    key_signature = next((element for element in elements if isinstance(element, KeySignature)), None)
+                    if key_signature is not None and self.settings.include_key_signature:
+                        tokens.append(f"key_signature_{key_signature.sharps}")
+                    time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
+                    if time_signature is not None and self.settings.include_time_signature:
+                        tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
+                    bar_model = next((element for element in elements if isinstance(element, BarModel)), None)
+
+                    if self.settings.include_offset and (
+                        any(isinstance(element, (Note, Chord)) for element in elements)
+                        or (self.settings.include_rests and any(isinstance(element, Rest) for element in elements))
+                    ):
+                        tokens.append(f"o{self.duration_or_offset_to_int_enc(offset)}")
+
+                    for element in elements:
+                        if isinstance(element, Note):
+                            tokens.append(f"p{element.pitch.midi}")
+                            tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
+                        elif isinstance(element, Rest) and self.settings.include_rests:
+                            tokens.append(self.rest)
+                            tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
+                        elif isinstance(element, Chord):
+                            for pitch in element.pitches:
+                                tokens.append(f"p{pitch.midi}")
+                            tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
+                tokens.append(self.parts_separator)
+
+            if not is_any_non_empty_measure:
+                if self.settings.include_rests:
+                    if self.settings.include_offset:
+                        tokens.append("o0")
+                    tokens.append(self.rest)
+                    if time_signature is not None:
+                        tokens.append(
+                            f"d{self.duration_or_offset_to_int_enc(time_signature.barDuration.quarterLength)}"
+                        )
+                    else:
+                        tokens.append(f"d{self.duration_or_offset_to_int_enc(4)}")
+            # for pickup/anacrusis bars
+            if self.settings.include_offset:
+                if bar_model is not None:
+                    tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
+                else:
+                    tokens.append(f"o{self.duration_or_offset_to_int_enc(4)}")
+            tokens.append(self.bar)
+        return " ".join(tokens)
 
     def _convert_offset_dicts_to_text_by_joining_measures(
         self,
-        parts_offset_to_result_elements: list[
+        parts_measures_dicts: list[
+            list[
+                dict[
+                    float | Fraction,
+                    list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+                ]
+            ]
+        ],
+    ) -> str:
+        joined_measures_dicts: list[
             dict[
                 float | Fraction,
                 list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
-            ],
-        ],
-    ) -> str:
-        offset_to_result_elements: dict[
-            float | Fraction,
-            list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
-        ] = {}
-        for d in parts_offset_to_result_elements:
-            for k, v in d.items():
-                if k not in offset_to_result_elements:
-                    offset_to_result_elements[k] = v
-                else:
-                    offset_to_result_elements[k].extend(v)
-        tokens: list[str] = []
-        offsets = sorted(offset_to_result_elements.keys())
-        is_first_bar: bool = True
-        element = None
-        measure_offset: float | Fraction = 0.0
-        for offset in offsets:
-            elements = offset_to_result_elements[offset]
+            ]
+        ] = []
+        for measures_dicts_with_nones in zip_longest(*parts_measures_dicts, fillvalue=None):
+            measures_dicts = tuple(item for item in measures_dicts_with_nones if item is not None)
+            joined_measure: dict[
+                float | Fraction,
+                list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel],
+            ] = {}
 
-            clef = next((element for element in elements if isinstance(element, Clef)), None)
-            if clef is not None and self.settings.include_clef:
-                tokens.append(f"clef_{clef.sign}_{clef.line}_{clef.octaveChange}")
-            key_signature = next((element for element in elements if isinstance(element, KeySignature)), None)
-            if key_signature is not None and self.settings.include_key_signature:
-                tokens.append(f"key_signature_{key_signature.sharps}")
-            time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
-            if time_signature is not None and self.settings.include_time_signature:
-                tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
-
-            bar = next((element for element in elements if isinstance(element, BarModel)), None)
-            if bar is not None:
-                if self.settings.include_bars:
-                    if is_first_bar:
-                        is_first_bar = False
+            for measure_offset_dict in measures_dicts:
+                if self.settings.skip_measures_without_notes and not any(
+                    isinstance(element, (Note, Chord))
+                    for list_of_elements in measure_offset_dict.values()
+                    for element in list_of_elements
+                ):
+                    continue
+                for offset, value in measure_offset_dict.items():
+                    if offset not in joined_measure:
+                        joined_measure[offset] = value
                     else:
-                        offset_int = self.duration_or_offset_to_int_enc(opFrac(offset - measure_offset))
-                        tokens.append(f"o{offset_int}")
-                        tokens.append(self.bar)
-                measure_offset = offset
+                        joined_measure[offset] = joined_measure[offset] + value
+            joined_measures_dicts.append(joined_measure)
 
-            in_bar_offset = cast(OffsetQL, opFrac(offset - measure_offset))
-            if (
-                self.settings.include_offset
-                and any(isinstance(element, (Note, Chord)) for element in elements)
-                or (self.settings.include_rests and any(isinstance(element, Rest) for element in elements))
-            ):
-                offset_int = self.duration_or_offset_to_int_enc(in_bar_offset)
-                tokens.append(f"o{offset_int}")
+        tokens: list[str] = []
+        for joined_measure in joined_measures_dicts:
+            is_nonempty_measure: bool = False
+            time_signature: TimeSignature | None = None
+            bar_model: BarModel | None = None
+            offsets = sorted(joined_measure.keys())
+            for offset in offsets:
+                elements = joined_measure[offset]
 
-            for element in elements:
-                if isinstance(element, Note):
-                    tokens.append(f"p{element.pitch.midi}")
-                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
-                elif isinstance(element, Rest) and self.settings.include_rests:
+                clef = next((element for element in elements if isinstance(element, Clef)), None)
+                if clef is not None and self.settings.include_clef:
+                    tokens.append(f"clef_{clef.sign}_{clef.line}_{clef.octaveChange}")
+                key_signature = next((element for element in elements if isinstance(element, KeySignature)), None)
+                if key_signature is not None and self.settings.include_key_signature:
+                    tokens.append(f"key_signature_{key_signature.sharps}")
+                time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
+                if time_signature is not None and self.settings.include_time_signature:
+                    tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
+                bar_model = next((element for element in elements if isinstance(element, BarModel)), None)
+
+                if any(isinstance(element, (Note, Chord)) for element in elements) or (
+                    self.settings.include_rests and any(isinstance(element, Rest) for element in elements)
+                ):
+                    is_nonempty_measure = True
+                    if self.settings.include_offset:
+                        tokens.append(f"o{self.duration_or_offset_to_int_enc(offset)}")
+
+                for element in elements:
+                    if isinstance(element, Note):
+                        tokens.append(f"p{element.pitch.midi}")
+                        tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
+                    elif isinstance(element, Rest) and self.settings.include_rests:
+                        tokens.append(self.rest)
+                        tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
+                    elif isinstance(element, Chord):
+                        for pitch in element.pitches:
+                            tokens.append(f"p{pitch.midi}")
+                            tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
+
+            if not is_nonempty_measure:
+                if self.settings.include_rests:
+                    if self.settings.include_offset:
+                        tokens.append("o0")
                     tokens.append(self.rest)
-                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
-                elif isinstance(element, Chord):
-                    for pitch in element.pitches:
-                        tokens.append(f"p{pitch.midi}")
-                    tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
-        # Add last bar
-        if self.settings.include_bars and element is not None:
-            if isinstance(element, BarModel):
-                pass
-            else:
-                if element.duration.quarterLength > 0 and self.settings.include_offset:
-                    offset_int = self.duration_or_offset_to_int_enc(
-                        opFrac(element.offset + element.duration.quarterLength)
-                    )
-                    tokens.append(f"o{offset_int}")
-                tokens.append(self.bar)
+                    if time_signature is not None:
+                        tokens.append(
+                            f"d{self.duration_or_offset_to_int_enc(time_signature.barDuration.quarterLength)}"
+                        )
+                    else:
+                        tokens.append(f"d{self.duration_or_offset_to_int_enc(4)}")
+            # for pickup/anacrusis bars
+            if self.settings.include_offset:
+                if bar_model is not None:
+                    tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
+                else:
+                    tokens.append(f"o{self.duration_or_offset_to_int_enc(4)}")
+            tokens.append(self.bar)
         return " ".join(tokens)
+
+    def text_to_score(self, text: str) -> Score:
+        measure_regex = re.compile(rf"\s*{re.escape(self.bar)}\s*")
+        measures: list[str] = measure_regex.split(text)
+        measures = [measure for measure in measures if measure]
+        print(measures)
+        # n_measures = len(measures)
+        part_regex = re.compile(rf"\s*(?<!\d){re.escape(self.parts_separator)}(?!\d)\s*")
+        measures_parts: list[list[str]] = [part_regex.split(measure) for measure in measures]
+
+        measures_padding_parts = [
+            measure_parts[-1] if len(measure_parts) > 0 else None for measure_parts in measures_parts
+        ]
+
+        corrected_measures_parts: list[list[str]] = []
+        for measure_parts in measures_parts:
+            if len(measure_parts) == 0:
+                corrected_measures_parts.append(measure_parts)
+            else:
+                corrected_measures_parts.append(measure_parts[:-1])
+        measures_parts = corrected_measures_parts
+
+        # measures_parts = [[measure for measure in measure_parts if measure] for measure_parts in measures_parts]
+        n_parts = max(len(measure_parts) for measure_parts in measures_parts)
+        parts = [Part() for _ in range(n_parts)]
+        print(measures_parts)
+
+        n_invalid_tokens = 0
+        for measure_parts, padding_part in zip(measures_parts, measures_padding_parts, strict=True):
+            for part, measure_part in zip_longest(parts, measure_parts, fillvalue=None):
+                if part is None:
+                    raise ValueError("Got None part in zip_longest in text_to_score")
+
+                measure = Measure()
+                if measure_part is None:
+                    part.append(measure)
+                    continue
+
+                offset: int | None = None
+                pitch: int | None = None
+                duration: int | None = None
+                tokens = measure_part.split()
+                for token in tokens:
+                    # print(token)
+                    if token.startswith("clef"):
+                        _, sign, line, octave_change = token.split("_")
+                        clef = music21.clef.clefFromString(
+                            f"{sign}{line}",
+                            octaveShift=int(octave_change),
+                        )
+                        measure.append(clef)
+                    elif token.startswith("key_signature"):
+                        n_sharps = token.split("_")[-1]
+                        key_signature = music21.key.KeySignature(sharps=int(n_sharps))
+                        measure.append(key_signature)
+                    elif token.startswith("time_signature"):
+                        fraction = token.split("_")[-1]
+                        numerator, denominator = fraction.split("/", maxsplit=1)
+                        time_signature = TimeSignature(value=f"{int(numerator)}/{int(denominator)}")
+                        measure.append(time_signature)
+                    elif token.startswith("o"):
+                        if pitch is not None:
+                            print(f"Got invalid offset token {token} in measure {measure_part}")
+                        offset = int(token[1:])
+                        pitch = None
+                        duration = None
+                    elif token.startswith("p"):
+                        pitch = int(token[1:])
+                        if offset is None:
+                            n_invalid_tokens += 1
+                            print(f"Got invalid pitch token {token} in measure {measure_part}")
+                    elif token.startswith("d"):
+                        duration = int(token[1:])
+                        if offset is None or pitch is None:
+                            n_invalid_tokens += 1
+                            print(f"Got invalid duration token {token} in measure {measure_part}")
+                        else:
+                            if pitch == 0:
+                                quarterLength_offset = self.int_enc_to_quarterLength(offset)
+                                rest = music21.note.Rest(length=self.int_enc_to_quarterLength(duration))
+                                rest.offset = quarterLength_offset
+                                part.insert(quarterLength_offset, rest)
+                            else:
+                                quarterLength_offset = self.int_enc_to_quarterLength(offset)
+                                note = music21.note.Note(pitch=pitch)
+                                note.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
+                                note.offset = quarterLength_offset
+                                measure.insert(quarterLength_offset, note)
+                            pitch = None
+                            duration = None
+                    elif token == self.rest:
+                        pitch = 0
+                        if offset is None:
+                            n_invalid_tokens += 1
+                            print(f"Got invalid rest token {token} in measure {measure_part}")
+                part.append(measure)
+                if padding_part is not None:
+                    tokens = padding_part.split()
+                    bar_offset: int | None = None
+                    for token in tokens:
+                        if token.startswith("o"):
+                            bar_offset = int(token[1:])
+                            break
+                    if bar_offset is not None:
+                        measure.paddingLeft = measure.barDuration.quarterLength - self.int_enc_to_quarterLength(
+                            bar_offset
+                        )
+        return Score(parts)
 
     def _add_clef_key_or_time_signature_to_dict_if_changed(
         self,
         last_clef: Clef | None,
         last_key_signature: KeySignature | None,
         last_time_signature: TimeSignature | None,
-        offset_to_result_elements: dict[
+        measures_dicts: dict[
             float | Fraction, list[Clef | KeySignature | TimeSignature | Note | Chord | Rest | BarModel]
         ],
         element: Clef | KeySignature | TimeSignature,
-        measure_offset: float,
     ) -> None:
         if_element_changed = False
         if isinstance(element, Clef):
@@ -430,20 +627,7 @@ class MidiConverter:
                 or element.denominator != last_time_signature.denominator
             )
         if if_element_changed:
-            if isinstance(element.offset, Fraction):
-                offset_to_result_elements[measure_offset].append(element)
-            else:
-                offset_to_result_elements[cast(OffsetQL, opFrac(measure_offset + element.offset))].append(element)
-
-    def filepath_to_texts(
-        self,
-        midi_path: Path,
-    ) -> dict[str, list[str]]:
-        stream = music21.converter.parseFile(
-            midi_path, quantizePost=True, quarterLengthDivisors=self._get_quarterLengthDivisors()
-        )
-        score_name_to_texts = self.stream_to_texts(stream, midi_path.name)
-        return score_name_to_texts
+            measures_dicts[element.offset].append(element)
 
     def _get_quarterLengthDivisors(self) -> list[int]:
         shortest_note_quarterLength = self.settings.shortest_note_duration / 4

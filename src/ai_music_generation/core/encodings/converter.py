@@ -360,9 +360,8 @@ class MidiConverter:
                 measure_offset = offset
 
             in_bar_offset = cast(OffsetQL, opFrac(offset - measure_offset))
-            if (
-                self.settings.include_offset
-                and any(isinstance(element, (Note, Chord, TupletModel)) for element in elements)
+            if self.settings.include_offset and (
+                any(isinstance(element, (Note, Chord)) for element in elements)
                 or (self.settings.include_rests and any(isinstance(element, Rest) for element in elements))
             ):
                 offset_int = self.duration_or_offset_to_int_enc(in_bar_offset)
