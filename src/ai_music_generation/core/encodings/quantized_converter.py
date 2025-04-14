@@ -321,10 +321,10 @@ class MidiQuantizedConverter:
         n_measures = max(len(part_measures) for part_measures in parts_measures_dicts)
         tokens: list[str] = []
         for measure_number in range(n_measures):
-            is_any_non_empty_measure: bool = False
+            # is_any_non_empty_measure: bool = False
             time_signature: TimeSignature | None = None
             bar_model: BarModel | None = None
-            for measures_dicts in parts_measures_dicts:
+            for part_number, measures_dicts in enumerate(parts_measures_dicts):
                 if len(measures_dicts) <= measure_number:
                     continue
 
@@ -336,7 +336,8 @@ class MidiQuantizedConverter:
                 ):
                     continue
 
-                is_any_non_empty_measure = True
+                tokens.append(f"{self.parts_separator}{part_number}")
+                # is_any_non_empty_measure = True
                 offsets = sorted(measure_offset_dict.keys())
                 for offset in offsets:
                     elements = measure_offset_dict[offset]
@@ -369,20 +370,21 @@ class MidiQuantizedConverter:
                             for pitch in element.pitches:
                                 tokens.append(f"p{pitch.midi}")
                             tokens.append(f"d{self.duration_or_offset_to_int_enc(element.duration.quarterLength)}")
-                tokens.append(self.parts_separator)
 
-            if not is_any_non_empty_measure:
-                if self.settings.include_rests:
-                    if self.settings.include_offset:
-                        tokens.append("o0")
-                    tokens.append(self.rest)
-                    if time_signature is not None:
-                        tokens.append(
-                            f"d{self.duration_or_offset_to_int_enc(time_signature.barDuration.quarterLength)}"
-                        )
-                    else:
-                        tokens.append(f"d{self.duration_or_offset_to_int_enc(4)}")
+            # if not is_any_non_empty_measure:
+            #     if self.settings.include_rests:
+            #         if self.settings.include_offset:
+            #             tokens.append("o0")
+            #         tokens.append(self.rest)
+            #         if time_signature is not None:
+            #             tokens.append(
+            #                 f"d{self.duration_or_offset_to_int_enc(time_signature.barDuration.quarterLength)}"
+            #             )
+            #         else:
+            #             tokens.append(f"d{self.duration_or_offset_to_int_enc(4)}")
+
             # for pickup/anacrusis bars
+            tokens.append(self.parts_separator)
             if self.settings.include_offset:
                 if bar_model is not None:
                     tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
@@ -489,16 +491,27 @@ class MidiQuantizedConverter:
         return " ".join(tokens)
 
     def text_to_score(self, text: str) -> Score:
+        parts_numbers = re.compile(rf"\s*(?<!\d){re.escape("/")}(\d?)(?!\d)\s*").findall(text)
+        n_parts = 0
+        for part_number in parts_numbers:
+            if part_number:
+                if int(part_number) + 1 > n_parts:
+                    n_parts = int(part_number) + 1
+
         measure_regex = re.compile(rf"\s*{re.escape(self.bar)}\s*")
         measures: list[str] = measure_regex.split(text)
         measures = [measure for measure in measures if measure]
-        print(measures)
+
         # n_measures = len(measures)
-        part_regex = re.compile(rf"\s*(?<!\d){re.escape(self.parts_separator)}(?!\d)\s*")
-        measures_parts: list[list[str]] = [part_regex.split(measure) for measure in measures]
+        part_regex = re.compile(rf"(\s*(?<!\d){re.escape(self.parts_separator)}\d?(?!\d)\s*)")
+        measures_parts: list[list[str]] = [part_regex.split(measure)[1:] for measure in measures]
+        measures_parts = [
+            [(measure[i] + measure[i + 1]).strip() for i in range(0, len(measure), 2)] for measure in measures_parts
+        ]
 
         measures_padding_parts = [
-            measure_parts[-1] if len(measure_parts) > 0 else None for measure_parts in measures_parts
+            measure_parts[-1] if len(measure_parts) > 0 and measure_parts[-1].startswith("/ ") else None
+            for measure_parts in measures_parts
         ]
 
         corrected_measures_parts: list[list[str]] = []
@@ -510,25 +523,34 @@ class MidiQuantizedConverter:
         measures_parts = corrected_measures_parts
 
         # measures_parts = [[measure for measure in measure_parts if measure] for measure_parts in measures_parts]
-        n_parts = max(len(measure_parts) for measure_parts in measures_parts)
         parts = [Part() for _ in range(n_parts)]
-        print(measures_parts)
+        # part_indexes = list(range(n_parts))
+        # last_key_signatures: list[KeySignature | None] = [None for _ in range(n_parts)]
 
         n_invalid_tokens = 0
         for measure_parts, padding_part in zip(measures_parts, measures_padding_parts, strict=True):
-            for part, measure_part in zip_longest(parts, measure_parts, fillvalue=None):
-                if part is None:
-                    raise ValueError("Got None part in zip_longest in text_to_score")
+            was_measure_added_in_part = [False for _ in range(n_parts)]
+            # for part_index, part, measure_part in zip_longest(part_indexes, parts, measure_parts, fillvalue=None):
+            for measure_part in measure_parts:
+                # if part is None:
+                #     raise ValueError("Got None part in zip_longest in text_to_score")
+                # if part_index is None:
+                #     raise ValueError("Got None part_index in zip_longest in text_to_score")
+                try:
+                    part_index = int(measure_part.split()[0][1:])
+                except Exception as e:
+                    print(f"Got measure_part that with invalid part_index {measure_part}, error:: {e}")
+                    continue
 
                 measure = Measure()
-                if measure_part is None:
-                    part.append(measure)
-                    continue
+                # if measure_part is None:
+                #     part.append(measure)
+                #     continue
 
                 offset: int | None = None
                 pitch: int | None = None
                 duration: int | None = None
-                tokens = measure_part.split()
+                tokens = measure_part.split()[1:]
                 for token in tokens:
                     # print(token)
                     if token.startswith("clef"):
@@ -541,6 +563,7 @@ class MidiQuantizedConverter:
                     elif token.startswith("key_signature"):
                         n_sharps = token.split("_")[-1]
                         key_signature = music21.key.KeySignature(sharps=int(n_sharps))
+                        # last_key_signatures[part_index] = key_signature
                         measure.append(key_signature)
                     elif token.startswith("time_signature"):
                         fraction = token.split("_")[-1]
@@ -568,7 +591,7 @@ class MidiQuantizedConverter:
                                 quarterLength_offset = self.int_enc_to_quarterLength(offset)
                                 rest = music21.note.Rest(length=self.int_enc_to_quarterLength(duration))
                                 rest.offset = quarterLength_offset
-                                part.insert(quarterLength_offset, rest)
+                                measure.insert(quarterLength_offset, rest)
                             else:
                                 quarterLength_offset = self.int_enc_to_quarterLength(offset)
                                 note = music21.note.Note(pitch=pitch)
@@ -582,7 +605,16 @@ class MidiQuantizedConverter:
                         if offset is None:
                             n_invalid_tokens += 1
                             print(f"Got invalid rest token {token} in measure {measure_part}")
-                part.append(measure)
+                    else:
+                        print(f"Got unexpected token {token}")
+                # last_key_signature = last_key_signatures[part_index]
+                # if last_key_signature is not None:
+                #     for n in measure.getElementsByClass(Note):
+                #         nStep = n.pitch.step
+                #         rightAccidental = last_key_signature.accidentalByStep(nStep)
+                #         n.pitch.accidental = rightAccidental
+                parts[part_index].append(measure)
+                was_measure_added_in_part[part_index] = True
                 if padding_part is not None:
                     tokens = padding_part.split()
                     bar_offset: int | None = None
@@ -594,6 +626,23 @@ class MidiQuantizedConverter:
                         measure.paddingLeft = measure.barDuration.quarterLength - self.int_enc_to_quarterLength(
                             bar_offset
                         )
+            for part_index, part in enumerate(parts):
+                if not was_measure_added_in_part[part_index]:
+                    measure = Measure()
+                    part.append(measure)
+                    if padding_part is not None:
+                        tokens = padding_part.split()
+                        bar_offset = None
+                        for token in tokens:
+                            if token.startswith("o"):
+                                bar_offset = int(token[1:])
+                                break
+                        if bar_offset is not None:
+                            measure.paddingLeft = measure.barDuration.quarterLength - self.int_enc_to_quarterLength(
+                                bar_offset
+                            )
+        if n_invalid_tokens > 0:
+            print(f"Got total of {n_invalid_tokens} invalid tokens")
         return Score(parts)
 
     def _add_clef_key_or_time_signature_to_dict_if_changed(

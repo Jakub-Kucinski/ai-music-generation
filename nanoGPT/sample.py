@@ -11,16 +11,18 @@ from contextlib import nullcontext
 import tiktoken
 import torch
 from model import GPT, GPTConfig
+from tqdm import tqdm
 
 text_type = "abc"
-use_validation_prefixes = True
-dataset = "irishman"
+use_validation_prefixes = False
+# dataset = "irishman"
+dataset = "bach"
 validation_file = "../data/02_preprocessed/irishman/validation_leadsheet.json"
 n_conditional_measures = 4
 # -----------------------------------------------------------------------------
 init_from = "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 out_dir = "out"  # ignored if init_from is not 'resume'
-start = "$ "  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
+start = "$"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
 num_samples = 100  # number of samples to draw
 max_new_tokens = 500  # number of tokens generated in each sample
 temperature = 0.8  # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
@@ -78,7 +80,10 @@ if load_meta:
     # TODO want to make this more general to arbitrary encoder/decoder schemes
     stoi, itos = meta["stoi"], meta["itos"]
     encode = lambda s: [stoi[c] for c in s]
-    decode = lambda l: "".join([itos[i] for i in l])
+    if dataset == "irishman":
+        decode = lambda l: "".join([itos[i] for i in l])
+    else:
+        decode = lambda l: " ".join([itos[i] for i in l])
 else:
     # ok let's assume gpt-2 encodings by default
     print("No meta.pkl found, assuming GPT-2 encodings...")
@@ -114,14 +119,22 @@ with torch.no_grad():
         wav_paths = []
         output_dir = os.path.join(out_dir, "samples")
         os.makedirs(output_dir, exist_ok=True)
-        for k, prefix in generator:
+        for k, prefix in tqdm(generator):
             start_ids = encode(prefix)
             x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
             res = decode(y[0].tolist())
             print(res)
             print("-" * 50)
-            file_name = os.path.join(output_dir, f"sample_{k}.abc")
-            normalized_res = f"X:{k}\n" + res.split("$")[1].strip()
+            if dataset == "irishman":
+                file_name = os.path.join(output_dir, f"sample_{k}.abc")
+            else:
+                file_name = os.path.join(output_dir, f"sample_{k}.txt")
+            if dataset == "irishman":
+                normalized_res = f"X:{k}\n" + res.split("$")[1].strip()
+            else:
+                normalized_res = res.split("$")[1].strip()
+                if not normalized_res.endswith("|"):
+                    normalized_res = "|".join(res.split("|")[:-1]).strip() + " |"
             with open(file_name, "w") as f:
                 f.write(normalized_res)

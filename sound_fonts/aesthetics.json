@@ -165,18 +165,18 @@
         "midi2wav": "FluidSynth",
         "font": "Essential Keys-sforzando-v9.6.sf2",
         "dataset": "irishman",
-        "version": "random_notes",
+        "version": "sampled_measures",
         "mean":{
-            "CE":6.6672703552,
-            "CU":7.7499380064,
-            "PC":2.0916479087,
-            "PQ":7.9699459171
+            "CE":7.4933422375,
+            "CU":8.1015881586,
+            "PC":3.0200879478,
+            "PQ":8.1810743523
         },
         "std":{
-            "CE":0.1039259509,
-            "CU":0.0507994699,
-            "PC":0.0293219041,
-            "PQ":0.0430869546
+            "CE":0.192077037,
+            "CU":0.071745216,
+            "PC":0.3175981384,
+            "PQ":0.0506487131
         }
     },
     {
@@ -201,18 +201,72 @@
         "midi2wav": "FluidSynth",
         "font": "Essential Keys-sforzando-v9.6.sf2",
         "dataset": "irishman",
-        "version": "sampled_measures",
+        "version": "random_notes",
         "mean":{
-            "CE":7.4933422375,
-            "CU":8.1015881586,
-            "PC":3.0200879478,
-            "PQ":8.1810743523
+            "CE":6.6672703552,
+            "CU":7.7499380064,
+            "PC":2.0916479087,
+            "PQ":7.9699459171
         },
         "std":{
-            "CE":0.192077037,
-            "CU":0.071745216,
-            "PC":0.3175981384,
-            "PQ":0.0506487131
+            "CE":0.1039259509,
+            "CU":0.0507994699,
+            "PC":0.0293219041,
+            "PQ":0.0430869546
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "music21 Bach",
+        "version": "ground_truth",
+        "mean":{
+            "CE":7.2837918304,
+            "CU":7.841247892,
+            "PC":2.8086112987,
+            "PQ":8.0326104009
+        },
+        "std":{
+            "CE":0.1567071705,
+            "CU":0.0828761969,
+            "PC":0.1670547021,
+            "PQ":0.0609736815
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "music21 Bach",
+        "version": "sampled 4 parts",
+        "mean":{
+            "CE":7.092322402,
+            "CU":7.8266539001,
+            "PC":2.5582322502,
+            "PQ":7.9728106737
+        },
+        "std":{
+            "CE":0.1815970085,
+            "CU":0.0877598942,
+            "PC":0.1342664157,
+            "PQ":0.081006806
+        }
+    },
+    {
+        "midi2wav": "FluidSynth",
+        "font": "Essential Keys-sforzando-v9.6.sf2",
+        "dataset": "music21 Bach",
+        "version": "unconditioned",
+        "mean":{
+            "CE":7.1298770952,
+            "CU":7.8236029053,
+            "PC":2.5830757546,
+            "PQ":8.0203131676
+        },
+        "std":{
+            "CE":0.2011685672,
+            "CU":0.0850078507,
+            "PC":0.1422014122,
+            "PQ":0.0673626572
         }
     }
 ]
