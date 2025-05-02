@@ -3,11 +3,14 @@ import json
 import os
 import re
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Literal
 
 import music21
 import pandas as pd
 from midi2audio import FluidSynth
+from sox.transform import Transformer as SoxTransformer
 from tqdm import tqdm
 
 # Converter settings
@@ -97,6 +100,28 @@ for sheet in tqdm(leadsheets):
         else:
             fs = FluidSynth(sample_rate=sample_rate)
         fs.midi_to_audio(midi_file_path, wav_file_path)
+
+    # Remove silence at the end of wav file produced by SoundFont configuration
+    transformer = SoxTransformer().silence(
+        location=-1,
+        silence_threshold=0.1,
+        min_silence_duration=0.1,
+        buffer_around_silence=False,
+    )
+    # 2) Create a temp file next to the original
+    with tempfile.NamedTemporaryFile(dir=wav_output_dir, suffix=Path(wav_file_path).suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        # 3) Write the processed audio to the temp file
+        transformer.build(wav_file_path, str(tmp_path))
+
+        # 4) Atomically replace the original
+        os.replace(tmp_path, wav_file_path)  # overwrites if target exists
+    finally:
+        # 5) If anything failed, make sure the temp file is removed
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
     # Append the absolute WAV file path to the list
     wav_paths.append(os.path.abspath(wav_file_path))

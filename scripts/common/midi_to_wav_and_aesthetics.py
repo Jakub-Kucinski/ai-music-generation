@@ -3,10 +3,13 @@ import json
 import multiprocessing
 import os
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 from midi2audio import FluidSynth
+from sox.transform import Transformer as SoxTransformer
 from tqdm import tqdm
 
 # Converter settings
@@ -16,8 +19,8 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 # Define paths
-midi_input_folder = "data/04_generated/music21_bach/unconditioned_samples/midi"
-base_output_dir = "data/04_generated/music21_bach/unconditioned_samples"
+midi_input_folder = "data/03_converted/music21_bach/full_dataset/midi"
+base_output_dir = "data/03_converted/music21_bach/full_dataset"
 
 # Create subdirectory for WAV outputs
 wav_output_dir = os.path.join(
@@ -49,9 +52,9 @@ def process_midi_file(midi_filename: str) -> str:
     # Define output WAV file path
     wav_file_path = os.path.join(wav_output_dir, f"file_{idx}.wav")
 
-    # Skip conversion if the WAV file already exists
-    if os.path.exists(wav_file_path):
-        return os.path.abspath(wav_file_path)
+    # # Skip conversion if the WAV file already exists
+    # if os.path.exists(wav_file_path):
+    #     return os.path.abspath(wav_file_path)
 
     # Convert MIDI to WAV
     if midi_to_wav_converter == "Timidity":
@@ -65,6 +68,28 @@ def process_midi_file(midi_filename: str) -> str:
         else:
             fs = FluidSynth(sample_rate=sample_rate)
         fs.midi_to_audio(midi_file_path, wav_file_path)
+
+    # Remove silence at the end of wav file produced by SoundFont configuration
+    transformer = SoxTransformer().silence(
+        location=-1,
+        silence_threshold=0.1,
+        min_silence_duration=0.1,
+        buffer_around_silence=False,
+    )
+    # 2) Create a temp file next to the original
+    with tempfile.NamedTemporaryFile(dir=wav_output_dir, suffix=Path(wav_file_path).suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        # 3) Write the processed audio to the temp file
+        transformer.build(wav_file_path, str(tmp_path))
+
+        # 4) Atomically replace the original
+        os.replace(tmp_path, wav_file_path)  # overwrites if target exists
+    finally:
+        # 5) If anything failed, make sure the temp file is removed
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
     return os.path.abspath(wav_file_path)
 

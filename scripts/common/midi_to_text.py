@@ -9,14 +9,14 @@ from ai_music_generation.core.encodings.quantized_converter import (
 )
 
 # Define paths
-# midi_dir = "data/03_converted/irishman/train_leadsheet/midi/abc2midi"
-# result_dir = "data/03_converted/irishman/train_leadsheet/midi_texts"
+midi_dir = "data/03_converted/irishman/train_leadsheet/midi/abc2midi"
+result_dir = "data/03_converted/irishman/train_leadsheet/midi_texts"
 # midi_dir = "data/03_converted/irishman/validation_leadsheet/midi/abc2midi"
 # result_dir = "data/03_converted/irishman/validation_leadsheet/midi_texts"
 # midi_dir = "data/03_converted/music21_bach/train/midi"
 # result_dir = "data/03_converted/music21_bach/train/midi_texts"
-midi_dir = "data/03_converted/music21_bach/validation/midi"
-result_dir = "data/03_converted/music21_bach/validation/midi_texts"
+# midi_dir = "data/03_converted/music21_bach/validation/midi"
+# result_dir = "data/03_converted/music21_bach/validation/midi_texts"
 
 # Create result directory if it doesn't exist
 os.makedirs(result_dir, exist_ok=True)
@@ -32,7 +32,11 @@ for filename in tqdm(os.listdir(midi_dir)):
         midi_path = os.path.join(midi_dir, filename)
         # Convert the single MIDI file to text.
         # Assuming this function returns a dictionary with one key (the file path) and its text.
-        name_to_text_dict = converter.filepath_to_texts(Path(midi_path))
+        try:
+            name_to_text_dict = converter.filepath_to_texts(Path(midi_path))
+        except Exception as e:
+            print(f"Got exception when processing midi file {midi_path}:\n{e}")
+            continue
 
         # Save the text for each file (typically one per conversion)
         for file_path, text in name_to_text_dict.items():

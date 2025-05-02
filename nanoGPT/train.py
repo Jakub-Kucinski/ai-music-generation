@@ -17,6 +17,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
 """
 
+import json
 import math
 import os
 import pickle
@@ -263,6 +264,13 @@ if wandb_log and master_process:
 
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
+# Path to your JSONL log
+log_path = os.path.join(out_dir, "losses.jsonl")
+
+# Make sure the file exists
+if not os.path.exists(log_path):
+    open(log_path, "w").close()
+
 # training loop
 X, Y = get_batch("train")  # fetch the very first batch
 t0 = time.time()
@@ -290,6 +298,16 @@ while True:
                     "mfu": running_mfu * 100,  # convert to percentage
                 }
             )
+        # Create the record
+        record = {
+            "step": iter_num,
+            "train_loss": losses["train"],
+            "val_loss": losses["val"],
+        }
+        # Append as one JSON object per line
+        with open(log_path, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
         if losses["val"] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses["val"]
             if iter_num > 0:

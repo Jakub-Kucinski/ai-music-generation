@@ -11,6 +11,7 @@ import music21.meter
 from devtools import pprint
 from loguru import logger
 from music21 import Music21Object
+from music21.bar import Barline, Repeat
 from music21.chord import Chord
 from music21.clef import Clef
 from music21.common.numberTools import opFrac
@@ -41,6 +42,9 @@ class TokenType(StrEnum):
 class BarModel(BaseModel):
     bar_duration_quarterLength: OffsetQL
     real_duration_quarterLength: OffsetQL
+    is_repeat: bool = False
+    is_end: bool = True
+    times: int | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -67,7 +71,9 @@ class MidiQuantizedConverter:
         self.bar: str = "|"
         self.tuplet_start: str = "tuplet_start"
         self.tuplet_end: str = "tuplet_end"
-        self.parts_separator = "/"
+        self.parts_separator: str = "/"
+        self.repeat_start: str = "repeat_start"
+        self.repeat_end: str = "repeat_end"
 
         self.time_signatures: list[str] = (  # Most common time signatures
             []
@@ -199,6 +205,9 @@ class MidiQuantizedConverter:
             raise ValueError(f"Got stream of type {type(stream)}, but expected Opus | Score | Part")
 
         score.quantize(quarterLengthDivisors=self._get_quarterLengthDivisors(), inPlace=True, recurse=True)
+        if self.settings.repeats_handling == "Expand":
+            score = score.expandRepeats()
+
         parts = self.filter_allowed_parts(score)
         if len(parts) == 0:
             return {}
@@ -276,12 +285,19 @@ class MidiQuantizedConverter:
                                 last_time_signature = element
                             continue
                         measure_offset_dict[element.offset].append(element)
-                measure_offset_dict[measure.offset].append(
-                    BarModel(
-                        bar_duration_quarterLength=measure.barDuration.quarterLength,
-                        real_duration_quarterLength=measure.duration.quarterLength,
-                    )
+                bar_model = BarModel(
+                    bar_duration_quarterLength=measure.barDuration.quarterLength,
+                    real_duration_quarterLength=measure.duration.quarterLength,
                 )
+                if measure.leftBarline:
+                    if self.settings.repeats_handling == "Special tokens" and isinstance(measure.leftBarline, Repeat):
+                        bar_model.is_repeat = True
+                        bar_model.is_end = False
+                if measure.rightBarline:
+                    if self.settings.repeats_handling == "Special tokens" and isinstance(measure.rightBarline, Repeat):
+                        bar_model.is_repeat = True
+                        bar_model.is_end = True
+                measure_offset_dict[0].append(bar_model)
                 measures_dicts.append(measure_offset_dict)
             parts_measures_dicts.append(measures_dicts)
             # pprint(measures_dicts)
@@ -324,6 +340,7 @@ class MidiQuantizedConverter:
             # is_any_non_empty_measure: bool = False
             time_signature: TimeSignature | None = None
             bar_model: BarModel | None = None
+            is_first_part: bool = True
             for part_number, measures_dicts in enumerate(parts_measures_dicts):
                 if len(measures_dicts) <= measure_number:
                     continue
@@ -336,9 +353,21 @@ class MidiQuantizedConverter:
                 ):
                     continue
 
+                offsets = sorted(measure_offset_dict.keys())
+
+                # Add repetition bar start token
+                if is_first_part:
+                    is_first_part = False
+                    if len(offsets) > 0 and offsets[0] == 0:
+                        elements = measure_offset_dict[0]
+                        # print(elements)
+                        bar_model = next((element for element in elements if isinstance(element, BarModel)), None)
+                        if bar_model is not None:
+                            if bar_model.is_repeat and not bar_model.is_end:
+                                tokens.append(self.repeat_start)
+
                 tokens.append(f"{self.parts_separator}{part_number}")
                 # is_any_non_empty_measure = True
-                offsets = sorted(measure_offset_dict.keys())
                 for offset in offsets:
                     elements = measure_offset_dict[offset]
 
@@ -351,7 +380,7 @@ class MidiQuantizedConverter:
                     time_signature = next((element for element in elements if isinstance(element, TimeSignature)), None)
                     if time_signature is not None and self.settings.include_time_signature:
                         tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
-                    bar_model = next((element for element in elements if isinstance(element, BarModel)), None)
+                    # bar_model = next((element for element in elements if isinstance(element, BarModel)), None)
 
                     if self.settings.include_offset and (
                         any(isinstance(element, (Note, Chord)) for element in elements)
@@ -388,6 +417,8 @@ class MidiQuantizedConverter:
             if self.settings.include_offset:
                 if bar_model is not None:
                     tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
+                    if bar_model.is_repeat and bar_model.is_end:
+                        tokens.append(self.repeat_end)
                 else:
                     tokens.append(f"o{self.duration_or_offset_to_int_enc(4)}")
             tokens.append(self.bar)
@@ -504,7 +535,9 @@ class MidiQuantizedConverter:
 
         # n_measures = len(measures)
         part_regex = re.compile(rf"(\s*(?<!\d){re.escape(self.parts_separator)}\d?(?!\d)\s*)")
-        measures_parts: list[list[str]] = [part_regex.split(measure)[1:] for measure in measures]
+        measures_parts: list[list[str]] = [part_regex.split(measure) for measure in measures]
+        pre_measures_tokens: list[str] = [measures_part[0] for measures_part in measures_parts]
+        measures_parts = [measures_part[1:] for measures_part in measures_parts]
         measures_parts = [
             [(measure[i] + measure[i + 1]).strip() for i in range(0, len(measure), 2)] for measure in measures_parts
         ]
@@ -513,6 +546,7 @@ class MidiQuantizedConverter:
             measure_parts[-1] if len(measure_parts) > 0 and measure_parts[-1].startswith("/ ") else None
             for measure_parts in measures_parts
         ]
+        # print(measures_padding_parts)
 
         corrected_measures_parts: list[list[str]] = []
         for measure_parts in measures_parts:
@@ -528,7 +562,9 @@ class MidiQuantizedConverter:
         # last_key_signatures: list[KeySignature | None] = [None for _ in range(n_parts)]
 
         n_invalid_tokens = 0
-        for measure_parts, padding_part in zip(measures_parts, measures_padding_parts, strict=True):
+        for measure_parts, padding_part, pre_measure_tokens in zip(
+            measures_parts, measures_padding_parts, pre_measures_tokens, strict=True
+        ):
             was_measure_added_in_part = [False for _ in range(n_parts)]
             # for part_index, part, measure_part in zip_longest(part_indexes, parts, measure_parts, fillvalue=None):
             for measure_part in measure_parts:
@@ -621,11 +657,15 @@ class MidiQuantizedConverter:
                     for token in tokens:
                         if token.startswith("o"):
                             bar_offset = int(token[1:])
-                            break
+                        elif token == self.repeat_end:
+                            measure.rightBarline = Repeat(direction="end", times=None)
                     if bar_offset is not None:
                         measure.paddingLeft = measure.barDuration.quarterLength - self.int_enc_to_quarterLength(
                             bar_offset
                         )
+                tokens = pre_measure_tokens.split()
+                if self.repeat_start in tokens:
+                    measure.leftBarline = Repeat(direction="start", times=None)
             for part_index, part in enumerate(parts):
                 if not was_measure_added_in_part[part_index]:
                     measure = Measure()
@@ -636,11 +676,15 @@ class MidiQuantizedConverter:
                         for token in tokens:
                             if token.startswith("o"):
                                 bar_offset = int(token[1:])
-                                break
+                            elif token == self.repeat_end:
+                                measure.rightBarline = Repeat(direction="end", times=None)
                         if bar_offset is not None:
                             measure.paddingLeft = measure.barDuration.quarterLength - self.int_enc_to_quarterLength(
                                 bar_offset
                             )
+                    tokens = pre_measure_tokens.split()
+                    if self.repeat_start in tokens:
+                        measure.leftBarline = Repeat(direction="start", times=None)
         if n_invalid_tokens > 0:
             print(f"Got total of {n_invalid_tokens} invalid tokens")
         return Score(parts)
@@ -700,11 +744,22 @@ class MidiQuantizedConverter:
         accepted_parts = []
         for part in score.parts:
             if bool(part.recurse().getElementsByClass(Note)) or bool(part.recurse().getElementsByClass(Chord)):
-                if not self.settings.allowed_instruments:
+                if self.settings.only_SATB_parts:
+                    if self.is_SATB_part(part):
+                        accepted_parts.append(part)
+                elif not self.settings.allowed_instruments:
                     accepted_parts.append(part)
                 elif self.is_allowed_part_instrument(part):
                     accepted_parts.append(part)
         return accepted_parts
+
+    def is_SATB_part(self, part: Part) -> bool:
+        n_instruments = 0
+        for instrument in part.getInstruments():
+            n_instruments += 1
+            if instrument.partName in ["Soprano", "Alto", "Tenor", "Bass"]:
+                return True
+        return False
 
     def is_allowed_part_instrument(self, part: Part) -> bool:
         n_instruments = 0

@@ -22,6 +22,8 @@ class EncodingSetting(BaseModel):
     shortest_note_duration: int = 16  # 1/n, shortest accepted note duration (Nth)
     longest_note_duration: int = 2  # n, longest accepted note duration (N whole notes)
     allow_triplet_quarterLength: bool = True
+    repeats_handling: Literal["Ignore", "Special tokens", "Expand"] = "Ignore"
+    only_SATB_parts: bool = False  # Soprano, Alto, Tenor, Bass
     allowed_instruments: list[InstrumentTypes] = Field(
         default_factory=lambda: deepcopy(
             [
@@ -41,7 +43,7 @@ class EncodingSetting(BaseModel):
                 # InstrumentTypes.ETHNIC,
                 # InstrumentTypes.PERCUSSIVE,
                 # InstrumentTypes.SOUND_EFFECTS,
-            ]
+            ]  # Empty list is equivalent to accepting all instruments
         )
     )
     raise_duration_errors: bool = False
