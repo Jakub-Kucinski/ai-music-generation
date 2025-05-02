@@ -31,6 +31,7 @@ audiobox-aesthetics = "^0.0.2"
 torchaudio = "^2.6.0"
 pysoundfile = "^0.9.0.post1"
 seaborn = "^0.13.2"
+sox = "^1.5.0"
 
 [tool.poetry.group.lint]
 optional = true

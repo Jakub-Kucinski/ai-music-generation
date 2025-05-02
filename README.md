@@ -21,3 +21,5 @@ Tested sound fonts were downloaded from https://sites.google.com/site/soundfonts
 - Essential Keys-sforzando-v9.6.sf2
 
 All sound fonts resulted in similar performance in terms of Meta's audiobox aesthetics, so I chose to use "Essential Keys-sforzando-v9.6.sf2" as it contains sound fonts for most common instruments (excluding drums).
+
+To run scripts that use sound fonts download the Essential Keys-sforzando-v9.6.sf2 soundfont and place it into sound_fonts folder.
