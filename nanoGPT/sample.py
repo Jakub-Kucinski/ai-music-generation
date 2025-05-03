@@ -7,6 +7,7 @@ import os
 import pickle
 import re
 from contextlib import nullcontext
+from typing import Generator, Literal
 
 import tiktoken
 import torch
@@ -15,9 +16,12 @@ from tqdm import tqdm
 
 text_type = "abc"
 use_validation_prefixes = False
-# dataset = "irishman"
-dataset = "bach"
-validation_file = "../data/02_preprocessed/irishman/validation_leadsheet.json"
+dataset = "irishman"
+# dataset = "bach"
+tokens_format: Literal["char", "midi"] = "midi"
+validation_path = "TODO"
+# validation_path = "../data/02_preprocessed/irishman/validation_leadsheet.json"
+# validation_path = "../data/03_converted/music21_bach/validation/midi_texts"
 n_conditional_measures = 4
 # -----------------------------------------------------------------------------
 init_from = "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
@@ -79,10 +83,11 @@ if load_meta:
         meta = pickle.load(f)
     # TODO want to make this more general to arbitrary encoder/decoder schemes
     stoi, itos = meta["stoi"], meta["itos"]
-    encode = lambda s: [stoi[c] for c in s]
-    if dataset == "irishman":
+    if tokens_format == "char":
+        encode = lambda s: [stoi[c] for c in s]
         decode = lambda l: "".join([itos[i] for i in l])
     else:
+        encode = lambda s: [stoi[c] for c in s.split()]
         decode = lambda l: " ".join([itos[i] for i in l])
 else:
     # ok let's assume gpt-2 encodings by default
@@ -97,26 +102,47 @@ if start.startswith("FILE:"):
         start = f.read()
 
 
-generator = ((i, start) for i in range(num_samples))
+generator: Generator[tuple[str, str], None, None] | Generator[tuple[int, str], None, None] = (
+    (i, start) for i in range(num_samples)
+)
 if use_validation_prefixes:
     if dataset == "irishman":
-        # Load JSON data
-        with open(validation_file, "r") as f:
-            leadsheets = json.load(f)
-        regex = re.compile(r"(:\||::|\s\||\|\])")
-        prefixes: list[tuple[int, str]] = []
-        for sheet in leadsheets:
-            id = sheet.get("id")
-            abc_notation = sheet.get("abc notation")
-            splitted_notation = regex.split(abc_notation)
-            prefixes.append((id, start + "".join(splitted_notation[: n_conditional_measures * 2])))
-        generator = (e for e in prefixes)
+        if tokens_format == "char":
+            # Load JSON data
+            with open(validation_path, "r") as f:
+                leadsheets = json.load(f)
+            regex = re.compile(r"(:\||::|\s\||\|\])")
+            prefixes: list[tuple[int, str]] = []
+            for sheet in leadsheets:
+                id = sheet.get("id")
+                abc_notation = sheet.get("abc notation")
+                splitted_notation = regex.split(abc_notation)
+                prefixes.append((id, start + "".join(splitted_notation[: n_conditional_measures * 2])))
+            generator = (e for e in prefixes)
+        elif tokens_format == "midi":
+            raise NotImplementedError()
+    if dataset == "bach":
+        if tokens_format == "midi":
+            file_contents: list[tuple[str, str]] = []
+            for fname in os.listdir(validation_path):
+                if fname.endswith(".txt"):
+                    full_path = os.path.join(validation_path, fname)
+                    with open(full_path, "r") as f:
+                        file_contents.append((fname[:-4], f.read()))
+            bach_prefixes: list[tuple[str, str]] = []
+            for bach_choral_name, bach_choral_midi_text in file_contents:
+                prefix = (
+                    start + " " + "|".join(bach_choral_midi_text.split("|")[:n_conditional_measures]).strip() + " |"
+                )
+                bach_prefixes.append((bach_choral_name, prefix))
+            generator = (e for e in bach_prefixes)
+        else:
+            NotImplementedError()
 
 
 # run generation
 with torch.no_grad():
     with ctx:
-        wav_paths = []
         output_dir = os.path.join(out_dir, "samples")
         os.makedirs(output_dir, exist_ok=True)
         for k, prefix in tqdm(generator):
@@ -126,7 +152,7 @@ with torch.no_grad():
             res = decode(y[0].tolist())
             print(res)
             print("-" * 50)
-            if dataset == "irishman":
+            if tokens_format == "char":
                 file_name = os.path.join(output_dir, f"sample_{k}.abc")
             else:
                 file_name = os.path.join(output_dir, f"sample_{k}.txt")

@@ -27,9 +27,9 @@ def load_texts_from_directory(directory: str) -> list[str]:
 
 
 # Define the directories for validation and training texts
-validation_dir = "data/03_converted/music21_bach/validation/midi_texts"
-train_dir = "data/03_converted/music21_bach/train/midi_texts"
-output_dir = "data/03_converted/music21_bach"
+validation_dir = "data/03_converted/irishman/validation_leadsheet/midi_texts"
+train_dir = "data/03_converted/irishman/train_leadsheet/midi_texts"
+output_dir = "data/03_converted/irishman"
 
 # Load the text files into lists
 valid_data = load_texts_from_directory(validation_dir)
@@ -59,12 +59,20 @@ with open(os.path.join(output_dir, "train_text.txt"), "w") as f:
 with open(os.path.join(output_dir, "valid_text.txt"), "w") as f:
     f.write(valid_text)
 
+with open("data/03_converted/music21_bach/train_text.txt", "r") as f:
+    bach_train = f.read()
+with open("data/03_converted/music21_bach/valid_text.txt", "r") as f:
+    bach_valid = f.read()
+bach_train_tokens = bach_train.split()
+bach_valid_tokens = bach_valid.split()
+
 # 4. Split both texts by whitespace into lists
 train_tokens = train_text.split()
 valid_tokens = valid_text.split()
 
 # 5. Create a single list of all unique tokens that appear in both lists (the union)
-unique_tokens = list(set(train_tokens) | set(valid_tokens))
+# unique_tokens = list(set(train_tokens) | set(valid_tokens))
+unique_tokens = list(set(train_tokens) | set(valid_tokens) | set(bach_train_tokens) | set(bach_valid_tokens))
 vocab_size = len(unique_tokens)
 
 # 6. Create mappings using enumerate: index-to-token and token-to-index

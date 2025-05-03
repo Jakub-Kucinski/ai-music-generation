@@ -19,8 +19,8 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 # Define paths
-midi_input_folder = "data/03_converted/music21_bach/full_dataset/midi"
-base_output_dir = "data/03_converted/music21_bach/full_dataset"
+midi_input_folder = "data/04_generated/irishman_midi/unconditioned_samples/midi"
+base_output_dir = "data/04_generated/irishman_midi/unconditioned_samples"
 
 # Create subdirectory for WAV outputs
 wav_output_dir = os.path.join(

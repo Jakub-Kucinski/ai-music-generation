@@ -22,8 +22,8 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 # Define paths
-abc_input_folder = "data/04_generated/random_notes/abc"
-base_output_dir = "data/04_generated/random_notes"
+abc_input_folder = "data/03_converted/irishman/validation_leadsheet/abc"
+base_output_dir = "data/03_converted/irishman/validation_leadsheet"
 os.makedirs(base_output_dir, exist_ok=True)
 
 # Create subdirectories for MIDI and WAV outputs

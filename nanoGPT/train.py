@@ -23,6 +23,7 @@ import os
 import pickle
 import time
 from contextlib import nullcontext
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -277,6 +278,7 @@ t0 = time.time()
 local_iter_num = 0  # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model  # unwrap DDP container if needed
 running_mfu = -1.0
+start_time = time.time()
 while True:
 
     # determine and set the learning rate for this iteration
@@ -287,7 +289,10 @@ while True:
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
-        print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        end = time.time()
+        print(
+            f"[{datetime.now().strftime("%H:%M:%S")}] step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}"
+        )
         if wandb_log:
             wandb.log(
                 {
@@ -301,8 +306,8 @@ while True:
         # Create the record
         record = {
             "step": iter_num,
-            "train_loss": losses["train"],
-            "val_loss": losses["val"],
+            "train_loss": losses["train"].item(),
+            "val_loss": losses["val"].item(),
         }
         # Append as one JSON object per line
         with open(log_path, "a") as f:
@@ -321,6 +326,7 @@ while True:
                 }
                 print(f"saving checkpoint to {out_dir}")
                 torch.save(checkpoint, os.path.join(out_dir, "ckpt.pt"))
+        torch.save(checkpoint, os.path.join(out_dir, "last_iter_ckpt.pt"))
     if iter_num == 0 and eval_only:
         break
 
@@ -361,7 +367,7 @@ while True:
         if local_iter_num >= 5:  # let the training loop settle a bit
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9 * running_mfu + 0.1 * mfu
-        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        # print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
     iter_num += 1
     local_iter_num += 1
 

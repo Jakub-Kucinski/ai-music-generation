@@ -1,5 +1,7 @@
 import os
+from multiprocessing import Pool, cpu_count
 from pathlib import Path
+from typing import List, Optional
 
 from tqdm import tqdm
 
@@ -21,29 +23,56 @@ result_dir = "data/03_converted/irishman/train_leadsheet/midi_texts"
 # Create result directory if it doesn't exist
 os.makedirs(result_dir, exist_ok=True)
 
-# Set up the converter
-settings = EncodingSetting()
-converter = MidiQuantizedConverter(settings)
+# Globals for worker processes
+_GLOBAL_MIDI_DIR: Path = Path(midi_dir)
+_GLOBAL_RESULT_DIR: Path = Path(result_dir)
+converter: Optional[MidiQuantizedConverter] = None  # will be initialized in each worker
 
-# Loop through each file in the directory
-for filename in tqdm(os.listdir(midi_dir)):
-    # Check for MIDI file extensions
-    if filename.lower().endswith((".mid", ".midi")):
-        midi_path = os.path.join(midi_dir, filename)
-        # Convert the single MIDI file to text.
-        # Assuming this function returns a dictionary with one key (the file path) and its text.
-        try:
-            name_to_text_dict = converter.filepath_to_texts(Path(midi_path))
-        except Exception as e:
-            print(f"Got exception when processing midi file {midi_path}:\n{e}")
-            continue
 
-        # Save the text for each file (typically one per conversion)
-        for file_path, text in name_to_text_dict.items():
-            base_name = os.path.basename(file_path)
-            name_without_ext, _ = os.path.splitext(base_name)
-            output_filepath = os.path.join(result_dir, name_without_ext + ".txt")
-            with open(output_filepath, "w", encoding="utf-8") as f:
-                f.write(text)
+def init_worker() -> None:
+    """
+    Initializer for each Pool worker: create one converter instance per process.
+    """
+    global converter
+    settings: EncodingSetting = EncodingSetting()
+    converter = MidiQuantizedConverter(settings)
 
-print("All MIDI files have been successfully converted to text.")
+
+def process_file(filename: str) -> None:
+    """
+    Worker function: convert a single MIDI file to text and write out .txt.
+    """
+    if not filename.lower().endswith((".mid", ".midi")):
+        return
+
+    midi_path: Path = _GLOBAL_MIDI_DIR / filename
+    try:
+        name_to_text_dict: dict[str, str] = converter.filepath_to_texts(midi_path)  # type: ignore
+    except Exception as e:
+        print(f"Error processing {midi_path}: {e}")
+        return
+
+    for relative_name, text in name_to_text_dict.items():
+        stem: str = Path(relative_name).stem
+        out_path: Path = _GLOBAL_RESULT_DIR / f"{stem}.txt"
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+
+if __name__ == "__main__":
+    # List and filter MIDI filenames once
+    all_files: List[str] = [f for f in os.listdir(midi_dir) if f.lower().endswith((".mid", ".midi"))]
+
+    # Spawn a pool of workers
+    num_workers: int = cpu_count()
+    with Pool(processes=num_workers, initializer=init_worker) as pool:
+        # imap_unordered gives us finished-as-they-come; total for tqdm
+        for _ in tqdm(
+            pool.imap_unordered(process_file, all_files),
+            total=len(all_files),
+            desc="Converting MIDI → text",
+            unit="file",
+        ):
+            pass
+
+    print("All MIDI files have been successfully converted to text.")

@@ -8,8 +8,8 @@ from ai_music_generation.core.encodings.quantized_converter import (
 )
 
 # Define the input directory for text files and the output directory for MIDI files.
-text_dir = "data/04_generated/music21_bach/unconditioned_samples/midi_texts"
-midi_output_dir = "data/04_generated/music21_bach/unconditioned_samples/midi"
+text_dir = "data/04_generated/irishman_midi/unconditioned_samples/midi_texts"
+midi_output_dir = "data/04_generated/irishman_midi/unconditioned_samples/midi"
 
 # Create the output directory if it doesn't exist.
 os.makedirs(midi_output_dir, exist_ok=True)

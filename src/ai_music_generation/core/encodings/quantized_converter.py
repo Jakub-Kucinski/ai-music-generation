@@ -177,9 +177,10 @@ class MidiQuantizedConverter:
         self,
         midi_path: Path,
     ) -> dict[str, str]:
-        stream = music21.converter.parseFile(
-            midi_path, quantizePost=True, quarterLengthDivisors=self._get_quarterLengthDivisors()
-        )
+        stream = music21.converter.parseFile(midi_path)
+        stream = stream.quantize(quarterLengthDivisors=self._get_quarterLengthDivisors(), recurse=True)
+        if stream is None:
+            raise ValueError("Stream became None after quantization")
         score_name_to_text = self.stream_to_texts(stream, midi_path.name)
         return score_name_to_text
 
@@ -584,7 +585,7 @@ class MidiQuantizedConverter:
                 #     continue
 
                 offset: int | None = None
-                pitch: int | None = None
+                pitches: list[int] | None = None
                 duration: int | None = None
                 tokens = measure_part.split()[1:]
                 for token in tokens:
@@ -607,37 +608,44 @@ class MidiQuantizedConverter:
                         time_signature = TimeSignature(value=f"{int(numerator)}/{int(denominator)}")
                         measure.append(time_signature)
                     elif token.startswith("o"):
-                        if pitch is not None:
+                        if pitches is not None:
                             print(f"Got invalid offset token {token} in measure {measure_part}")
                         offset = int(token[1:])
-                        pitch = None
+                        pitches = None
                         duration = None
                     elif token.startswith("p"):
-                        pitch = int(token[1:])
+                        if pitches is None:
+                            pitches = []
+                        pitches.append(int(token[1:]))
                         if offset is None:
                             n_invalid_tokens += 1
                             print(f"Got invalid pitch token {token} in measure {measure_part}")
                     elif token.startswith("d"):
                         duration = int(token[1:])
-                        if offset is None or pitch is None:
+                        if offset is None or pitches is None:
                             n_invalid_tokens += 1
                             print(f"Got invalid duration token {token} in measure {measure_part}")
                         else:
-                            if pitch == 0:
-                                quarterLength_offset = self.int_enc_to_quarterLength(offset)
+                            pitches = [pitch for pitch in pitches if pitch > 0]
+                            quarterLength_offset = self.int_enc_to_quarterLength(offset)
+                            if len(pitches) == 0:
                                 rest = music21.note.Rest(length=self.int_enc_to_quarterLength(duration))
                                 rest.offset = quarterLength_offset
                                 measure.insert(quarterLength_offset, rest)
-                            else:
-                                quarterLength_offset = self.int_enc_to_quarterLength(offset)
-                                note = music21.note.Note(pitch=pitch)
+                            elif len(pitches) == 1:
+                                note = music21.note.Note(pitch=pitches[0])
                                 note.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
                                 note.offset = quarterLength_offset
                                 measure.insert(quarterLength_offset, note)
-                            pitch = None
+                            else:
+                                chord = music21.chord.Chord(pitches)
+                                chord.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
+                                chord.offset = quarterLength_offset
+                                measure.insert(quarterLength_offset, chord)
+                            pitches = None
                             duration = None
                     elif token == self.rest:
-                        pitch = 0
+                        pitches = [0]
                         if offset is None:
                             n_invalid_tokens += 1
                             print(f"Got invalid rest token {token} in measure {measure_part}")
