@@ -6,12 +6,33 @@ import numpy as np
 from matplotlib.ticker import MaxNLocator
 
 
-def plot_similarity_matrix(similarity_matrix: list[list[float]]) -> None:
+def plot_similarity_matrix(
+    similarity_matrix: list[list[float]],
+    similarity_type: Literal["Inner", "Reference", "Conditioned"] = "Inner",
+    vmin: float | None = 0.5,
+    vmax: float | None = 1.0,
+    cmap: str = "viridis",
+) -> None:
     fig, ax = plt.subplots()
-    cax = ax.imshow(similarity_matrix, interpolation="nearest")
-    ax.set_title("Similarity Matrix Heatmap")
-    ax.set_xlabel("Measure Index")
-    ax.set_ylabel("Measure Index")
+    cax = ax.imshow(
+        similarity_matrix,
+        interpolation="nearest",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        origin="lower",
+    )
+    ax.set_title("Measure Similarity Matrix Heatmap")
+    ax.set_xlabel(
+        "Measure Index"
+        if similarity_type == "Inner"
+        else ("Reference Piece" if similarity_type == "Reference" else "Conditioned Prefix")
+    )
+    ax.set_ylabel(
+        "Measure Index"
+        if similarity_type == "Inner"
+        else ("Examined Piece" if similarity_type == "Reference" else "Whole Piece")
+    )
     fig.colorbar(cax, ax=ax)
     plt.show()
 

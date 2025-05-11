@@ -46,10 +46,12 @@ class MidiVectorizer:
                     measures.append(potential_measure)
             parts_measures.append(measures)
 
-        n = len(parts_measures[0])
-        for part_measures in parts_measures[1:]:
-            if n != len(part_measures):
-                raise RuntimeError(f"Got list of measures of different lengths in file {midi_path_or_score}")
+        # Pad shorter parts with empty Measure() to match the longest part
+        max_measures = max(len(pm) for pm in parts_measures)
+        for pm in parts_measures:
+            if len(pm) < max_measures:
+                pm.extend([Measure() for _ in range(max_measures - len(pm))])
+        n = max_measures
 
         pitches_distributions: list[list[float]] = []
         offsets: list[list[float | Fraction]] = []
@@ -72,7 +74,7 @@ class MidiVectorizer:
                         for pitch in element.pitches:
                             measure_stack_offsets.append(element.offset)
                             measure_stack_pitches_with_durations.append((pitch.midi, element.duration.quarterLength))
-            if measure_duration is None:
+            if measure_duration is None or measure_duration == 0:
                 measure_duration = 4.0
 
             measure_pitches_distribution: list[float | Fraction] = [0.0] * 12

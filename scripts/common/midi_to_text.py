@@ -34,7 +34,7 @@ def init_worker() -> None:
     Initializer for each Pool worker: create one converter instance per process.
     """
     global converter
-    settings: EncodingSetting = EncodingSetting(include_offset_in_notes=True)
+    settings: EncodingSetting = EncodingSetting(include_offset_in_notes=True)  # IMPORTANT
     converter = MidiQuantizedConverter(settings)
 
 
