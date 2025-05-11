@@ -360,7 +360,7 @@ class MidiConverter:
                 measure_offset = offset
 
             in_bar_offset = cast(OffsetQL, opFrac(offset - measure_offset))
-            if self.settings.include_offset and (
+            if self.settings.include_offset_in_notes and (
                 any(isinstance(element, (Note, Chord, TupletModel)) for element in elements)
                 or (self.settings.include_rests and any(isinstance(element, Rest) for element in elements))
             ):
@@ -405,14 +405,14 @@ class MidiConverter:
         # Add last bar
         if self.settings.include_bars and element is not None:
             if isinstance(element, TupletModel):
-                if self.settings.include_offset:
+                if self.settings.include_offset_in_notes:
                     offset_int = self.duration_or_offset_to_int_enc(opFrac(element.current_end_offset - measure_offset))
                     tokens.append(f"o{offset_int}")
                 tokens.append(self.bar)
             elif isinstance(element, BarModel):
                 pass
             else:
-                if element.duration.quarterLength > 0 and self.settings.include_offset:
+                if element.duration.quarterLength > 0 and self.settings.include_offset_in_notes:
                     offset_int = self.duration_or_offset_to_int_enc(
                         opFrac(element.offset + element.duration.quarterLength)
                     )

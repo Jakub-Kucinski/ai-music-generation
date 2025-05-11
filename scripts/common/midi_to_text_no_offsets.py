@@ -12,13 +12,13 @@ from ai_music_generation.core.encodings.quantized_converter import (
 
 # Define paths
 midi_dir = "data/03_converted/irishman/train_leadsheet/midi/abc2midi"
-result_dir = "data/03_converted/irishman/train_leadsheet/midi_texts"
+result_dir = "data/03_converted/irishman/train_leadsheet/midi_texts_no_offsets"
 # midi_dir = "data/03_converted/irishman/validation_leadsheet/midi/abc2midi"
-# result_dir = "data/03_converted/irishman/validation_leadsheet/midi_texts"
+# result_dir = "data/03_converted/irishman/validation_leadsheet/midi_texts_no_offsets"
 # midi_dir = "data/03_converted/music21_bach/train/midi"
-# result_dir = "data/03_converted/music21_bach/train/midi_texts"
+# result_dir = "data/03_converted/music21_bach/train/midi_texts_no_offsets"
 # midi_dir = "data/03_converted/music21_bach/validation/midi"
-# result_dir = "data/03_converted/music21_bach/validation/midi_texts"
+# result_dir = "data/03_converted/music21_bach/validation/midi_texts_no_offsets"
 
 # Create result directory if it doesn't exist
 os.makedirs(result_dir, exist_ok=True)
@@ -34,7 +34,7 @@ def init_worker() -> None:
     Initializer for each Pool worker: create one converter instance per process.
     """
     global converter
-    settings: EncodingSetting = EncodingSetting(include_offset_in_notes=True)
+    settings: EncodingSetting = EncodingSetting(include_offset_in_notes=False)
     converter = MidiQuantizedConverter(settings)
 
 

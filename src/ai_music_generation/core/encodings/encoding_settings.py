@@ -14,9 +14,9 @@ class EncodingSetting(BaseModel):
     include_clef: bool = True
     include_key_signature: bool = True
     include_time_signature: bool = True
-    include_offset: bool = True
+    include_offset_in_notes: bool = True
     include_offset_in_tuplets: bool = True
-    joining_parts_strategy: Literal["Join measures", "Queue parallel measures"] = "Queue parallel measures"
+    joining_parts_strategy: Literal["Join parallel measures", "Queue parallel measures"] = "Queue parallel measures"
     skip_measures_without_notes: bool = False
     notes_range: Tuple[int, int] = PIANO_RANGE
     shortest_note_duration: int = 16  # 1/n, shortest accepted note duration (Nth)

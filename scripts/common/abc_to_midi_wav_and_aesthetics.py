@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from statistics import NormalDist
 from typing import Literal
 
 import music21
@@ -22,8 +23,8 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 # Define paths
-abc_input_folder = "data/03_converted/irishman/validation_leadsheet/abc"
-base_output_dir = "data/03_converted/irishman/validation_leadsheet"
+abc_input_folder = "data/04_generated/irishman_1k_context/unconditioned/abc"
+base_output_dir = "data/04_generated/irishman_1k_context/unconditioned"
 os.makedirs(base_output_dir, exist_ok=True)
 
 # Create subdirectories for MIDI and WAV outputs
@@ -137,10 +138,29 @@ if __name__ == "__main__":
     # Load the aesthetics JSONL file into a DataFrame
     df = pd.read_json(output_jsonl_filename, lines=True)
 
-    # Compute mean and standard deviation for selected aesthetic columns
-    stats = df[["CE", "CU", "PC", "PQ"]].agg(["mean", "std"])
+    mean = df.mean()  # column‑wise means
+    se = df.sem(ddof=1)  # column‑wise standard errors = s / √n
 
-    # Save the aggregated aesthetics statistics to a JSON file
-    stats.to_json(output_aggregated_aesthetics, orient="index", indent=4)
+    Z_95 = NormalDist().inv_cdf(0.975)
+    moe = Z_95 * se  # calculate margin of error for 95% confidence interval
+    ci_lower = mean - moe
+    ci_upper = mean + moe
 
-    print(stats)
+    # 3) build output dict including margin-of-error and ci95
+    out = {
+        "mean": mean.to_dict(),
+        "se": se.to_dict(),
+        "moe": moe.to_dict(),
+        "ci95_lower": ci_lower.to_dict(),
+        "ci95_upper": ci_upper.to_dict(),
+    }
+
+    # 4) write JSON summary
+    with open(output_aggregated_aesthetics, "w") as f:
+        json.dump(out, f, indent=4)
+
+    # 5) optional console print
+    print("\nMean ± MoE (95% CI half-width)")
+    print("-" * 40)
+    for col in mean.index:
+        print(f"{col:>3}: {mean[col]:.6f} ± {moe[col]:.6f}  " f"[{ci_lower[col]:.6f}, {ci_upper[col]:.6f}]")

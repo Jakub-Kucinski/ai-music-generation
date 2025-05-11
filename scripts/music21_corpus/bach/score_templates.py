@@ -57,9 +57,18 @@ for key, counter in counts_by_key.items():
     for float_val, cnt in counter.items():
         print(f"  {float_val!r} → {cnt}")
 
-counts_to_save = {
+lengths_to_save = {
     key: {measure_length: count for measure_length, count in counter.items()} for key, counter in counts_by_key.items()
 }
 
 with open("scripts/music21_corpus/bach/stats/measure_length_counts.json", "w", encoding="utf-8") as f:
+    json.dump(lengths_to_save, f, indent=4)
+
+
+counts_to_save = {
+    key: [len(score_template) for score_template in score_templates]
+    for key, score_templates in time_signature_to_score_templates.items()
+}
+
+with open("scripts/music21_corpus/bach/stats/measures_count.json", "w", encoding="utf-8") as f:
     json.dump(counts_to_save, f, indent=4)

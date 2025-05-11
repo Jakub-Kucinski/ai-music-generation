@@ -178,11 +178,17 @@ class MidiQuantizedConverter:
         midi_path: Path,
     ) -> dict[str, str]:
         stream = music21.converter.parseFile(midi_path)
-        stream = stream.quantize(quarterLengthDivisors=self._get_quarterLengthDivisors(), recurse=True)
-        if stream is None:
-            raise ValueError("Stream became None after quantization")
+        stream = self._quantize_stream(stream)
         score_name_to_text = self.stream_to_texts(stream, midi_path.name)
         return score_name_to_text
+
+    def _quantize_stream(self, stream: Score | Part | Opus) -> Score | Part | Opus:
+        quantized_stream = cast(
+            Score | Part | Opus, stream.quantize(quarterLengthDivisors=self._get_quarterLengthDivisors(), recurse=True)
+        )
+        if quantized_stream is None:
+            raise ValueError("Stream became None after quantization")
+        return quantized_stream
 
     def stream_to_texts(
         self,
@@ -317,8 +323,8 @@ class MidiQuantizedConverter:
             ]
         ],
     ) -> str:
-        if self.settings.joining_parts_strategy == "Join measures":
-            return self._convert_offset_dicts_to_text_by_joining_measures(parts_measures_dicts)
+        if self.settings.joining_parts_strategy == "Join parallel measures":
+            return self._convert_offset_dicts_to_text_by_joining_parallel_measures(parts_measures_dicts)
         elif self.settings.joining_parts_strategy == "Queue parallel measures":
             return self._convert_offset_dicts_to_text_by_queuing_parallel_measures(parts_measures_dicts)
         else:
@@ -383,7 +389,7 @@ class MidiQuantizedConverter:
                         tokens.append(f"time_signature_{time_signature.numerator}/{time_signature.denominator}")
                     # bar_model = next((element for element in elements if isinstance(element, BarModel)), None)
 
-                    if self.settings.include_offset and (
+                    if self.settings.include_offset_in_notes and (
                         any(isinstance(element, (Note, Chord)) for element in elements)
                         or (self.settings.include_rests and any(isinstance(element, Rest) for element in elements))
                     ):
@@ -403,7 +409,7 @@ class MidiQuantizedConverter:
 
             # if not is_any_non_empty_measure:
             #     if self.settings.include_rests:
-            #         if self.settings.include_offset:
+            #         if self.settings.include_offset_in_notes:
             #             tokens.append("o0")
             #         tokens.append(self.rest)
             #         if time_signature is not None:
@@ -415,17 +421,16 @@ class MidiQuantizedConverter:
 
             # for pickup/anacrusis bars
             tokens.append(self.parts_separator)
-            if self.settings.include_offset:
-                if bar_model is not None:
-                    tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
-                    if bar_model.is_repeat and bar_model.is_end:
-                        tokens.append(self.repeat_end)
-                else:
-                    tokens.append(f"o{self.duration_or_offset_to_int_enc(4)}")
+            if bar_model is not None:
+                tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
+                if bar_model.is_repeat and bar_model.is_end:
+                    tokens.append(self.repeat_end)
+            else:
+                tokens.append(f"o{self.duration_or_offset_to_int_enc(4)}")
             tokens.append(self.bar)
         return " ".join(tokens)
 
-    def _convert_offset_dicts_to_text_by_joining_measures(
+    def _convert_offset_dicts_to_text_by_joining_parallel_measures(
         self,
         parts_measures_dicts: list[
             list[
@@ -487,7 +492,7 @@ class MidiQuantizedConverter:
                     self.settings.include_rests and any(isinstance(element, Rest) for element in elements)
                 ):
                     is_nonempty_measure = True
-                    if self.settings.include_offset:
+                    if self.settings.include_offset_in_notes:
                         tokens.append(f"o{self.duration_or_offset_to_int_enc(offset)}")
 
                 for element in elements:
@@ -504,7 +509,7 @@ class MidiQuantizedConverter:
 
             if not is_nonempty_measure:
                 if self.settings.include_rests:
-                    if self.settings.include_offset:
+                    if self.settings.include_offset_in_notes:
                         tokens.append("o0")
                     tokens.append(self.rest)
                     if time_signature is not None:
@@ -514,7 +519,7 @@ class MidiQuantizedConverter:
                     else:
                         tokens.append(f"d{self.duration_or_offset_to_int_enc(4)}")
             # for pickup/anacrusis bars
-            if self.settings.include_offset:
+            if self.settings.include_offset_in_notes:
                 if bar_model is not None:
                     tokens.append(f"o{self.duration_or_offset_to_int_enc(bar_model.real_duration_quarterLength)}")
                 else:
@@ -576,81 +581,11 @@ class MidiQuantizedConverter:
                 try:
                     part_index = int(measure_part.split()[0][1:])
                 except Exception as e:
-                    print(f"Got measure_part that with invalid part_index {measure_part}, error:: {e}")
+                    logger.warning(f"Got measure_part that with invalid part_index {measure_part}, error:: {e}")
                     continue
 
-                measure = Measure()
-                # if measure_part is None:
-                #     part.append(measure)
-                #     continue
-
-                offset: int | None = None
-                pitches: list[int] | None = None
-                duration: int | None = None
-                tokens = measure_part.split()[1:]
-                for token in tokens:
-                    # print(token)
-                    if token.startswith("clef"):
-                        _, sign, line, octave_change = token.split("_")
-                        clef = music21.clef.clefFromString(
-                            f"{sign}{line}",
-                            octaveShift=int(octave_change),
-                        )
-                        measure.append(clef)
-                    elif token.startswith("key_signature"):
-                        n_sharps = token.split("_")[-1]
-                        key_signature = music21.key.KeySignature(sharps=int(n_sharps))
-                        # last_key_signatures[part_index] = key_signature
-                        measure.append(key_signature)
-                    elif token.startswith("time_signature"):
-                        fraction = token.split("_")[-1]
-                        numerator, denominator = fraction.split("/", maxsplit=1)
-                        time_signature = TimeSignature(value=f"{int(numerator)}/{int(denominator)}")
-                        measure.append(time_signature)
-                    elif token.startswith("o"):
-                        if pitches is not None:
-                            print(f"Got invalid offset token {token} in measure {measure_part}")
-                        offset = int(token[1:])
-                        pitches = None
-                        duration = None
-                    elif token.startswith("p"):
-                        if pitches is None:
-                            pitches = []
-                        pitches.append(int(token[1:]))
-                        if offset is None:
-                            n_invalid_tokens += 1
-                            print(f"Got invalid pitch token {token} in measure {measure_part}")
-                    elif token.startswith("d"):
-                        duration = int(token[1:])
-                        if offset is None or pitches is None:
-                            n_invalid_tokens += 1
-                            print(f"Got invalid duration token {token} in measure {measure_part}")
-                        else:
-                            pitches = [pitch for pitch in pitches if pitch > 0]
-                            quarterLength_offset = self.int_enc_to_quarterLength(offset)
-                            if len(pitches) == 0:
-                                rest = music21.note.Rest(length=self.int_enc_to_quarterLength(duration))
-                                rest.offset = quarterLength_offset
-                                measure.insert(quarterLength_offset, rest)
-                            elif len(pitches) == 1:
-                                note = music21.note.Note(pitch=pitches[0])
-                                note.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
-                                note.offset = quarterLength_offset
-                                measure.insert(quarterLength_offset, note)
-                            else:
-                                chord = music21.chord.Chord(pitches)
-                                chord.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
-                                chord.offset = quarterLength_offset
-                                measure.insert(quarterLength_offset, chord)
-                            pitches = None
-                            duration = None
-                    elif token == self.rest:
-                        pitches = [0]
-                        if offset is None:
-                            n_invalid_tokens += 1
-                            print(f"Got invalid rest token {token} in measure {measure_part}")
-                    else:
-                        print(f"Got unexpected token {token}")
+                measure, n_new_invalid_tokens = self.parse_single_measure_part(measure_part=measure_part)
+                n_invalid_tokens += n_new_invalid_tokens
                 # last_key_signature = last_key_signatures[part_index]
                 # if last_key_signature is not None:
                 #     for n in measure.getElementsByClass(Note):
@@ -694,8 +629,146 @@ class MidiQuantizedConverter:
                     if self.repeat_start in tokens:
                         measure.leftBarline = Repeat(direction="start", times=None)
         if n_invalid_tokens > 0:
-            print(f"Got total of {n_invalid_tokens} invalid tokens")
+            logger.warning(f"Got total of {n_invalid_tokens} invalid tokens")
         return Score(parts)
+
+    def parse_single_measure_part(self, measure_part: str) -> tuple[Measure, int]:
+        if self.settings.include_offset_in_notes:
+            return self.parse_single_measure_part_with_notes_offsets(measure_part)
+        else:
+            return self.parse_single_measure_part_without_notes_offsets(measure_part)
+
+    def parse_single_measure_part_with_notes_offsets(self, measure_part: str) -> tuple[Measure, int]:
+        n_invalid_tokens = 0
+        measure = Measure()
+
+        offset: int | None = None
+        pitches: list[int] | None = None
+        duration: int | None = None
+        tokens = measure_part.split()[1:]
+        for token in tokens:
+            # print(token)
+            if token.startswith("clef"):
+                _, sign, line, octave_change = token.split("_")
+                clef = music21.clef.clefFromString(
+                    f"{sign}{line}",
+                    octaveShift=int(octave_change),
+                )
+                measure.append(clef)
+            elif token.startswith("key_signature"):
+                n_sharps = token.split("_")[-1]
+                key_signature = music21.key.KeySignature(sharps=int(n_sharps))
+                measure.append(key_signature)
+            elif token.startswith("time_signature"):
+                fraction = token.split("_")[-1]
+                numerator, denominator = fraction.split("/", maxsplit=1)
+                time_signature = TimeSignature(value=f"{int(numerator)}/{int(denominator)}")
+                measure.append(time_signature)
+            elif token.startswith("o"):
+                if pitches is not None:
+                    logger.warning(f"Got invalid offset token {token} in measure {measure_part}")
+                offset = int(token[1:])
+                pitches = None
+                duration = None
+            elif token.startswith("p"):
+                if pitches is None:
+                    pitches = []
+                pitches.append(int(token[1:]))
+                if offset is None:
+                    n_invalid_tokens += 1
+                    logger.warning(f"Got invalid pitch token {token} in measure {measure_part}")
+            elif token.startswith("d"):
+                duration = int(token[1:])
+                if offset is None or pitches is None:
+                    n_invalid_tokens += 1
+                    logger.warning(f"Got invalid duration token {token} in measure {measure_part}")
+                else:
+                    pitches = [pitch for pitch in pitches if pitch > 0]
+                    quarterLength_offset = self.int_enc_to_quarterLength(offset)
+                    if len(pitches) == 0:
+                        rest = music21.note.Rest(length=self.int_enc_to_quarterLength(duration))
+                        rest.offset = quarterLength_offset
+                        measure.insert(quarterLength_offset, rest)
+                    elif len(pitches) == 1:
+                        note = music21.note.Note(pitch=pitches[0])
+                        note.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
+                        note.offset = quarterLength_offset
+                        measure.insert(quarterLength_offset, note)
+                    else:
+                        chord = music21.chord.Chord(pitches)
+                        chord.duration = music21.duration.Duration(self.int_enc_to_quarterLength(duration))
+                        chord.offset = quarterLength_offset
+                        measure.insert(quarterLength_offset, chord)
+                    pitches = None
+                    duration = None
+            elif token == self.rest:
+                pitches = [0]
+                if offset is None:
+                    n_invalid_tokens += 1
+                    logger.warning(f"Got invalid rest token {token} in measure {measure_part}")
+            else:
+                logger.warning(f"Got unexpected token {token}")
+        return measure, n_invalid_tokens
+
+    def parse_single_measure_part_without_notes_offsets(self, measure_part: str) -> tuple[Measure, int]:
+        n_invalid_tokens = 0
+        measure = Measure()
+
+        quarterLength_offset: OffsetQL = 0.0
+        pitches: list[int] | None = None
+        duration: int | None = None
+        tokens = measure_part.split()[1:]
+        for token in tokens:
+            if token.startswith("clef"):
+                _, sign, line, octave_change = token.split("_")
+                clef = music21.clef.clefFromString(
+                    f"{sign}{line}",
+                    octaveShift=int(octave_change),
+                )
+                measure.append(clef)
+            elif token.startswith("key_signature"):
+                n_sharps = token.split("_")[-1]
+                key_signature = music21.key.KeySignature(sharps=int(n_sharps))
+                measure.append(key_signature)
+            elif token.startswith("time_signature"):
+                fraction = token.split("_")[-1]
+                numerator, denominator = fraction.split("/", maxsplit=1)
+                time_signature = TimeSignature(value=f"{int(numerator)}/{int(denominator)}")
+                measure.append(time_signature)
+            elif token.startswith("p"):
+                if pitches is None:
+                    pitches = []
+                pitches.append(int(token[1:]))
+            elif token.startswith("d"):
+                duration = int(token[1:])
+                if pitches is None:
+                    n_invalid_tokens += 1
+                    logger.warning(f"Got invalid duration token {token} in measure {measure_part}")
+                else:
+                    quarterLength_duration = self.int_enc_to_quarterLength(duration)
+                    pitches = [pitch for pitch in pitches if pitch > 0]
+                    if len(pitches) == 0:
+                        rest = music21.note.Rest(length=quarterLength_duration)
+                        rest.offset = quarterLength_offset
+                        measure.insert(quarterLength_offset, rest)
+                    elif len(pitches) == 1:
+                        note = music21.note.Note(pitch=pitches[0])
+                        note.duration = music21.duration.Duration(quarterLength_duration)
+                        note.offset = quarterLength_offset
+                        measure.insert(quarterLength_offset, note)
+                    else:
+                        chord = music21.chord.Chord(pitches)
+                        chord.duration = music21.duration.Duration(quarterLength_duration)
+                        chord.offset = quarterLength_offset
+                        measure.insert(quarterLength_offset, chord)
+                    pitches = None
+                    duration = None
+                    quarterLength_offset = cast(OffsetQL, opFrac(quarterLength_offset + quarterLength_duration))
+            elif token == self.rest:
+                pitches = [0]
+            else:
+                logger.warning(f"Got unexpected token {token}")
+        return measure, n_invalid_tokens
 
     def _add_clef_key_or_time_signature_to_dict_if_changed(
         self,
