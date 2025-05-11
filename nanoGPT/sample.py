@@ -14,20 +14,22 @@ import torch
 from model import GPT, GPTConfig
 from tqdm import tqdm
 
-text_type = "abc"
 use_validation_prefixes = False
 dataset = "irishman"
 # dataset = "bach"
-tokens_format: Literal["char", "midi"] = "midi"
-validation_path = "TODO"
+tokens_format: Literal["char", "midi"] = "char"
+validation_path = ""
 # validation_path = "../data/02_preprocessed/irishman/validation_leadsheet.json"
+# validation_path = "../data/03_converted/irishman/validation_leadsheet/midi_texts"
+# validation_path = "../data/03_converted/irishman/validation_leadsheet/midi_texts_no_offsets"
 # validation_path = "../data/03_converted/music21_bach/validation/midi_texts"
+# validation_path = "../data/03_converted/music21_bach/validation/midi_texts_no_offsets"
 n_conditional_measures = 4
 # -----------------------------------------------------------------------------
 init_from = "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
 out_dir = "out"  # ignored if init_from is not 'resume'
 start = "$"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
-num_samples = 100  # number of samples to draw
+num_samples = 1000  # number of samples to draw
 max_new_tokens = 500  # number of tokens generated in each sample
 temperature = 0.8  # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
 top_k = 200  # retain only the top_k most likely tokens, clamp others to have 0 probability
@@ -106,7 +108,21 @@ generator: Generator[tuple[str, str], None, None] | Generator[tuple[int, str], N
     (i, start) for i in range(num_samples)
 )
 if use_validation_prefixes:
-    if dataset == "irishman":
+    if validation_path == "":
+        raise ValueError(f"use_validation_prefixes is True {use_validation_prefixes}, but validation_path was not set")
+    if tokens_format == "midi":
+        file_contents: list[tuple[str, str]] = []
+        for fname in os.listdir(validation_path):
+            if fname.endswith(".txt"):
+                full_path = os.path.join(validation_path, fname)
+                with open(full_path, "r") as f:
+                    file_contents.append((fname[:-4], f.read()))
+        midi_prefixes: list[tuple[str, str]] = []
+        for midi_name, midi_text in file_contents:
+            prefix = start + " " + "|".join(midi_text.split("|")[:n_conditional_measures]).strip() + " |"
+            midi_prefixes.append((midi_name, prefix))
+        generator = (e for e in midi_prefixes)
+    elif dataset == "irishman":
         if tokens_format == "char":
             # Load JSON data
             with open(validation_path, "r") as f:
@@ -121,23 +137,8 @@ if use_validation_prefixes:
             generator = (e for e in prefixes)
         elif tokens_format == "midi":
             raise NotImplementedError()
-    if dataset == "bach":
-        if tokens_format == "midi":
-            file_contents: list[tuple[str, str]] = []
-            for fname in os.listdir(validation_path):
-                if fname.endswith(".txt"):
-                    full_path = os.path.join(validation_path, fname)
-                    with open(full_path, "r") as f:
-                        file_contents.append((fname[:-4], f.read()))
-            bach_prefixes: list[tuple[str, str]] = []
-            for bach_choral_name, bach_choral_midi_text in file_contents:
-                prefix = (
-                    start + " " + "|".join(bach_choral_midi_text.split("|")[:n_conditional_measures]).strip() + " |"
-                )
-                bach_prefixes.append((bach_choral_name, prefix))
-            generator = (e for e in bach_prefixes)
-        else:
-            NotImplementedError()
+    else:
+        raise NotImplementedError()
 
 
 # run generation
@@ -150,13 +151,14 @@ with torch.no_grad():
             x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
             res = decode(y[0].tolist())
-            print(res)
+            print(f"\nPrefix: {prefix}")
+            print(f"Generation: {res}")
             print("-" * 50)
-            if tokens_format == "char":
+            if tokens_format == "char" and dataset == "irishman":
                 file_name = os.path.join(output_dir, f"sample_{k}.abc")
             else:
                 file_name = os.path.join(output_dir, f"sample_{k}.txt")
-            if dataset == "irishman":
+            if tokens_format == "char" and dataset == "irishman":
                 normalized_res = f"X:{k}\n" + res.split("$")[1].strip()
             else:
                 normalized_res = res.split("$")[1].strip()
