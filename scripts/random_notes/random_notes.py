@@ -8,8 +8,8 @@ from tqdm import tqdm
 MIN_NOTES = 1
 MAX_NOTES = 4
 MIN_TOTAL_NOTES = 64
-OUTPUT_DIR = "data/04_generated/random_notes/abc"
-NUM_FILES = 100
+OUTPUT_DIR = "data/04_generated/irishman/random_notes/abc"
+NUM_FILES = 1000
 
 # Single list of distinct notes
 NOTES = [
@@ -48,7 +48,7 @@ KEY_SIGNATURES = ["C", "G", "D", "A", "F", "Bb", "Eb", "Am", "Em", "Dm"]
 
 
 def generate_random_notes(num_notes: int, notes: list[str]) -> list[str]:
-    """Generate a list of random notes with random durations appended (in the range 1-4) from the provided notes list."""
+    """Generate a list of random notes with random durations appended (in the range 1-4) from the provided notes list"""
     result = []
     for _ in range(num_notes):
         note = random.choice(notes)

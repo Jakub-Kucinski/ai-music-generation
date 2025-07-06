@@ -6,7 +6,7 @@ import re
 from tqdm import tqdm
 
 NUM_FILES = 1000  # Number of ABC files to generate
-OUTPUT_DIR = "data/04_generated/irishman/sampled_measures/abc"
+OUTPUT_DIR = "data/04_generated/irishman/repeated_measures/abc"
 
 JSON_FILE_PATH = "data/02_preprocessed/irishman/validation_leadsheet.json"
 NUM_MEASURES = 32
@@ -50,8 +50,9 @@ def create_new_abc(descriptions: list[str], measures: list[str], idx: int, num_m
         selected_description = re.sub(r"^X:\s*(\d+)", f"X:{idx}", selected_description, flags=re.MULTILINE)
     else:
         selected_description = f"X:{idx}\n" + selected_description
-    # Randomly select measures (with replacement)
-    selected_measures = [random.choice(measures) for _ in range(num_measures)]
+    # Randomly select ONE measure and repeat it for all measures
+    selected_measure = random.choice(measures)
+    selected_measures = [selected_measure] * num_measures
     # Join the selected measures with a bar symbol
     measures_str = " | ".join(selected_measures)
     # Combine the selected description and measures

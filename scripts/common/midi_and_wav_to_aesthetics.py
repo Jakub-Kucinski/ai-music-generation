@@ -3,14 +3,9 @@ import json
 import multiprocessing
 import os
 import subprocess
-import tempfile
-from pathlib import Path
 from statistics import NormalDist
-from typing import Literal
 
 import pandas as pd
-from midi2audio import FluidSynth
-from sox.transform import Transformer as SoxTransformer
 from tqdm import tqdm
 
 from ai_music_generation.core.metrics.calculate import (
@@ -25,39 +20,25 @@ from ai_music_generation.core.metrics.similarities import (
 )
 from ai_music_generation.core.metrics.vectorization import MidiVectorizer
 
-# Converter settings
-midi_to_wav_converter: Literal["Timidity", "FluidSynth"] = "FluidSynth"
-sound_fonts_dir = "sound_fonts"
-sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
-sample_rate = 16_000
-
+# Configuration
 reference_midi_files_dir: str | None = None
 n_conditioned_measures: int = 0
+
 # Define paths
 midi_input_folder = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars/midi"
 base_output_dir = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars"
-# reference_midi_files_dir = "data/03_converted/music21_bach/validation/midi"
-# n_conditioned_measures = 4
+reference_midi_files_dir = "data/03_converted/music21_bach/validation/midi"
+n_conditioned_measures = 4
 
-# Create subdirectory for WAV outputs
-wav_output_dir = os.path.join(
-    base_output_dir,
-    "wav",
-)
-os.makedirs(wav_output_dir, exist_ok=True)
+# WAV files directory (assumed to already exist with files)
+wav_output_dir = os.path.join(base_output_dir, "wav")
 
 # Create subdirectory for metrics
-metrics_dir = os.path.join(
-    base_output_dir,
-    "metrics",
-)
+metrics_dir = os.path.join(base_output_dir, "metrics")
 os.makedirs(metrics_dir, exist_ok=True)
 
 # Prepare folder for structure related metrics
-structure_metrics = os.path.join(
-    metrics_dir,
-    "structure",
-)
+structure_metrics = os.path.join(metrics_dir, "structure")
 os.makedirs(structure_metrics, exist_ok=True)
 
 inner_similarity_jsonl_filename = os.path.join(structure_metrics, "inner_similarity.jsonl")
@@ -66,12 +47,9 @@ reference_similarity_jsonl_filename = os.path.join(structure_metrics, "reference
 aggregated_similarities_json = os.path.join(structure_metrics, "aggregated_similarities.json")
 
 # Prepare folder for audiobox JSONL files (WAV paths and aesthetics)
-audiobox_dir = os.path.join(
-    metrics_dir,
-    "audiobox_aesthetics",
-)
-
+audiobox_dir = os.path.join(metrics_dir, "audiobox_aesthetics")
 os.makedirs(audiobox_dir, exist_ok=True)
+
 input_jsonl_filename = os.path.join(audiobox_dir, "wav_paths.jsonl")
 output_jsonl_filename = os.path.join(audiobox_dir, "aesthetics.jsonl")
 output_aggregated_aesthetics = os.path.join(audiobox_dir, "aesthetics_aggregated.jsonl")
@@ -89,48 +67,14 @@ def process_midi_file(
     # Use the file name (without extension) as the index
     idx = os.path.splitext(midi_filename)[0]
 
-    # Define output WAV file path
+    # Define corresponding WAV file path (assumed to already exist)
     wav_file_path = os.path.join(wav_output_dir, f"file_{idx}.wav")
 
-    # # Skip conversion if the WAV file already exists
-    # if os.path.exists(wav_file_path):
-    #     return os.path.abspath(wav_file_path)
+    # Verify that the WAV file exists
+    if not os.path.exists(wav_file_path):
+        raise FileNotFoundError(f"Expected WAV file does not exist: {wav_file_path}")
 
-    # Convert MIDI to WAV
-    if midi_to_wav_converter == "Timidity":
-        subprocess.run(
-            ["timidity", midi_file_path, "-Ow", "-o", wav_file_path, "-s", str(sample_rate)],
-            check=False,
-        )
-    elif midi_to_wav_converter == "FluidSynth":
-        if sound_font:
-            fs = FluidSynth(sound_font=os.path.join(sound_fonts_dir, sound_font), sample_rate=sample_rate)
-        else:
-            fs = FluidSynth(sample_rate=sample_rate)
-        fs.midi_to_audio(midi_file_path, wav_file_path)
-
-    # Remove silence at the end of wav file produced by SoundFont configuration
-    transformer = SoxTransformer().silence(
-        location=-1,
-        silence_threshold=0.1,
-        min_silence_duration=0.1,
-        buffer_around_silence=False,
-    )
-    # 2) Create a temp file next to the original
-    with tempfile.NamedTemporaryFile(dir=wav_output_dir, suffix=Path(wav_file_path).suffix, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        # 3) Write the processed audio to the temp file
-        transformer.build(wav_file_path, str(tmp_path))
-
-        # 4) Atomically replace the original
-        os.replace(tmp_path, wav_file_path)  # overwrites if target exists
-    finally:
-        # 5) If anything failed, make sure the temp file is removed
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
-
+    # Calculate similarities from MIDI file
     vectorizer = MidiVectorizer()
 
     pitches_features, offsets_features = vectorizer.midi_or_score_to_notes_and_offsets_feature_vectors(midi_file_path)
@@ -138,15 +82,8 @@ def process_midi_file(
         pitches_features, cyclic_pitch_similarity
     )
     rhythm_inner_similarity_result = calculate_inner_similarity_of_music_vectors(offsets_features, rhythmic_similarity)
-    # inner_similarity_dict = {
-    #     "file": midi_file_path,
-    #     "melody": melody_inner_similarity_result.model_dump(mode="json"),
-    #     "rhythm": rhythm_inner_similarity_result.model_dump(mode="json"),
-    # }
-    # inner_similarity_str = json.dumps(inner_similarity_dict)
 
-    # reference_similarity_str: dict | None = None
-    # reference_similarity_dict: dict | None = None
+    # Calculate reference similarity if reference directory is provided
     melody_reference_similarity_result: SimilarityResult | None = None
     rhythm_reference_similarity_result: SimilarityResult | None = None
     if reference_midi_files_dir:
@@ -167,14 +104,8 @@ def process_midi_file(
             similarity_function=rhythmic_similarity,
             n_measures_to_skip=n_conditioned_measures,
         )
-        # reference_similarity_dict = {
-        #     "file": midi_file_path,
-        #     "reference": reference_file_path,
-        #     "melody": melody_reference_similarity_result.model_dump(mode="json"),
-        #     "rhythm": rhythm_reference_similarity_result.model_dump(mode="json"),
-        # }
-        # reference_similarity_str = json.dumps(reference_similarity_dict)
 
+    # Calculate conditioned similarity if n_conditioned_measures > 0
     melody_conditioned_similarity_result: SimilarityResult | None = None
     rhythm_conditioned_similarity_result: SimilarityResult | None = None
     if n_conditioned_measures > 0:
@@ -196,9 +127,15 @@ def process_midi_file(
 
 
 if __name__ == "__main__":
+    # Verify that required directories exist
+    if not os.path.exists(midi_input_folder):
+        raise FileNotFoundError(f"MIDI input folder does not exist: {midi_input_folder}")
+    if not os.path.exists(wav_output_dir):
+        raise FileNotFoundError(f"WAV output folder does not exist: {wav_output_dir}")
+
     # Get a list of all MIDI files in the input folder
     midi_files = sorted([f for f in os.listdir(midi_input_folder) if f.endswith(".mid")])
-    print(midi_files)
+    print(f"Found {len(midi_files)} MIDI files")
 
     # Process each MIDI file using multiprocessing
     with multiprocessing.Pool() as pool:

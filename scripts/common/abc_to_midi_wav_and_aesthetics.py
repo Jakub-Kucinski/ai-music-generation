@@ -15,6 +15,18 @@ from midi2audio import FluidSynth
 from sox.transform import Transformer as SoxTransformer
 from tqdm import tqdm
 
+from ai_music_generation.core.metrics.calculate import (
+    SimilarityResult,
+    calculate_conditioned_similarity_of_music_vectors,
+    calculate_inner_similarity_of_music_vectors,
+    calculate_reference_similarity_of_music_vectors,
+)
+from ai_music_generation.core.metrics.similarities import (
+    cyclic_pitch_similarity,
+    rhythmic_similarity,
+)
+from ai_music_generation.core.metrics.vectorization import MidiVectorizer
+
 # Converter settings
 abc_to_midi_converter: Literal["music21", "abc2midi"] = "abc2midi"
 midi_to_wav_converter: Literal["Timidity", "FluidSynth"] = "FluidSynth"
@@ -22,9 +34,12 @@ sound_fonts_dir = "sound_fonts"
 sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
+reference_midi_files_dir: str | None = None
+n_conditioned_measures: int = 4
+
 # Define paths
-abc_input_folder = "data/04_generated/irishman_1k_context/unconditioned/abc"
-base_output_dir = "data/04_generated/irishman_1k_context/unconditioned"
+abc_input_folder = "data/04_generated/irishman_midi/conditioned_4_bars/abc"
+base_output_dir = "data/04_generated/irishman_midi/conditioned_4_bars"
 os.makedirs(base_output_dir, exist_ok=True)
 
 # Create subdirectories for MIDI and WAV outputs
@@ -39,6 +54,26 @@ wav_output_dir = os.path.join(
 os.makedirs(midi_output_dir, exist_ok=True)
 os.makedirs(wav_output_dir, exist_ok=True)
 
+# Create subdirectory for metrics
+metrics_dir = os.path.join(
+    base_output_dir,
+    "metrics",
+    abc_to_midi_converter,
+)
+os.makedirs(metrics_dir, exist_ok=True)
+
+# Prepare folder for structure related metrics
+structure_metrics = os.path.join(
+    metrics_dir,
+    "structure",
+)
+os.makedirs(structure_metrics, exist_ok=True)
+
+inner_similarity_jsonl_filename = os.path.join(structure_metrics, "inner_similarity.jsonl")
+conditional_prefix_similarity_jsonl_filename = os.path.join(structure_metrics, "conditional_prefix_similarity.jsonl")
+reference_similarity_jsonl_filename = os.path.join(structure_metrics, "reference_similarity.jsonl")
+aggregated_similarities_json = os.path.join(structure_metrics, "aggregated_similarities.json")
+
 # Prepare folder for the JSONL files (WAV paths and aesthetics)
 audiobox_dir = os.path.join(
     base_output_dir,
@@ -52,11 +87,13 @@ input_jsonl_filename = os.path.join(audiobox_dir, "wav_paths.jsonl")
 output_jsonl_filename = os.path.join(audiobox_dir, "aesthetics.jsonl")
 output_aggregated_aesthetics = os.path.join(audiobox_dir, "aesthetics_aggregated.jsonl")
 
-# List to collect the absolute WAV file paths
-wav_paths = []
 
-
-def process_abc_file(abc_filename: str) -> str | None:
+def process_abc_file(abc_filename: str) -> tuple[
+    str | None,
+    tuple[str, SimilarityResult, SimilarityResult] | None,
+    tuple[str, SimilarityResult | None, SimilarityResult | None] | None,
+    tuple[str, SimilarityResult | None, SimilarityResult | None] | None,
+]:
     try:
         abc_file_path = os.path.join(abc_input_folder, abc_filename)
         with open(abc_file_path, "r") as file:
@@ -90,7 +127,7 @@ def process_abc_file(abc_filename: str) -> str | None:
             if sound_font:
                 fs = FluidSynth(sound_font=os.path.join(sound_fonts_dir, sound_font), sample_rate=sample_rate)
             else:
-                fs = FluidSynth(sample_rate=sample_rate)
+                fs = FluidSynth(sound_font="/usr/share/sounds/sf2/default-GM.sf2", sample_rate=sample_rate)
             fs.midi_to_audio(midi_file_path, wav_file_path)
 
         # Remove silence at the end of wav file produced by SoundFont configuration
@@ -115,10 +152,68 @@ def process_abc_file(abc_filename: str) -> str | None:
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
 
-        return os.path.abspath(wav_file_path)
+        # Calculate structure similarity metrics
+        vectorizer = MidiVectorizer()
+
+        pitches_features, offsets_features = vectorizer.midi_or_score_to_notes_and_offsets_feature_vectors(
+            midi_file_path
+        )
+        melody_inner_similarity_result = calculate_inner_similarity_of_music_vectors(
+            pitches_features, cyclic_pitch_similarity
+        )
+        rhythm_inner_similarity_result = calculate_inner_similarity_of_music_vectors(
+            offsets_features, rhythmic_similarity
+        )
+
+        # Reference similarity calculations
+        melody_reference_similarity_result: SimilarityResult | None = None
+        rhythm_reference_similarity_result: SimilarityResult | None = None
+        if reference_midi_files_dir:
+            # For ABC files, we might need to adjust the reference filename mapping
+            # This assumes the reference files have similar naming pattern
+            reference_filename = f"file_{idx}.mid"  # Adjust this pattern as needed
+            reference_file_path = os.path.join(reference_midi_files_dir, reference_filename)
+            if os.path.exists(reference_file_path):
+                reference_pitches_features, reference_offsets_features = (
+                    vectorizer.midi_or_score_to_notes_and_offsets_feature_vectors(reference_file_path)
+                )
+                melody_reference_similarity_result = calculate_reference_similarity_of_music_vectors(
+                    pitches_features,
+                    reference_pitches_features,
+                    similarity_function=cyclic_pitch_similarity,
+                    n_measures_to_skip=n_conditioned_measures,
+                )
+                rhythm_reference_similarity_result = calculate_reference_similarity_of_music_vectors(
+                    offsets_features,
+                    reference_offsets_features,
+                    similarity_function=rhythmic_similarity,
+                    n_measures_to_skip=n_conditioned_measures,
+                )
+
+        # Conditioned similarity calculations
+        melody_conditioned_similarity_result: SimilarityResult | None = None
+        rhythm_conditioned_similarity_result: SimilarityResult | None = None
+        if n_conditioned_measures > 0:
+            melody_conditioned_similarity_result = calculate_conditioned_similarity_of_music_vectors(
+                pitches_features,
+                conditioned_n_measures=n_conditioned_measures,
+                similarity_function=cyclic_pitch_similarity,
+            )
+            rhythm_conditioned_similarity_result = calculate_conditioned_similarity_of_music_vectors(
+                offsets_features,
+                conditioned_n_measures=n_conditioned_measures,
+                similarity_function=rhythmic_similarity,
+            )
+
+        return (
+            os.path.abspath(wav_file_path),
+            (midi_file_path, melody_inner_similarity_result, rhythm_inner_similarity_result),
+            (midi_file_path, melody_reference_similarity_result, rhythm_reference_similarity_result),
+            (midi_file_path, melody_conditioned_similarity_result, rhythm_conditioned_similarity_result),
+        )
     except Exception as e:
-        print(e)
-        return None
+        print(f"Error processing {abc_filename}: {e}")
+        return None, None, None, None
 
 
 if __name__ == "__main__":
@@ -127,16 +222,101 @@ if __name__ == "__main__":
 
     # Process each ABC file using multiprocessing
     with multiprocessing.Pool() as pool:
-        wav_paths = list(tqdm(pool.imap(process_abc_file, abc_files), total=len(abc_files)))
+        processing_results = list(tqdm(pool.imap(process_abc_file, abc_files), total=len(abc_files)))
+
+    # Filter out None results and separate the results
+    valid_results = [result for result in processing_results if result[0] is not None]
 
     # Write the collected WAV file paths to a JSONL file
+    wav_paths = [result[0] for result in valid_results]
     with open(input_jsonl_filename, "w") as out_file:
         for path in wav_paths:
-            if path is not None:
-                json_line = json.dumps({"path": path})
-                out_file.write(json_line + "\n")
+            json_line = json.dumps({"path": path})
+            out_file.write(json_line + "\n")
 
     print(f"\nWAV file paths saved to {input_jsonl_filename}")
+
+    # Save structure similarity metrics
+    inner_similarity = [result[1] for result in valid_results if result[1] is not None]
+    reference_similarity = [result[2] for result in valid_results if result[2] is not None]
+    conditioned_similarity = [result[3] for result in valid_results if result[3] is not None]
+
+    # Save inner similarity metrics
+    with open(inner_similarity_jsonl_filename, "w") as out_file:
+        for midi_file_path, melody_similarity, rhythm_sim in inner_similarity:
+            json_line = json.dumps(
+                {
+                    "path": midi_file_path,
+                    "melody": melody_similarity.model_dump(mode="json"),
+                    "rhythm": rhythm_sim.model_dump(mode="json"),
+                }
+            )
+            out_file.write(json_line + "\n")
+
+    # Save reference similarity metrics
+    with open(reference_similarity_jsonl_filename, "w") as out_file:
+        for midi_file_path, melody_sim, rhythm_sim in reference_similarity:
+            if melody_sim is None or rhythm_sim is None:
+                continue
+            json_line = json.dumps(
+                {
+                    "path": midi_file_path,
+                    "melody": melody_sim.model_dump(mode="json"),
+                    "rhythm": rhythm_sim.model_dump(mode="json"),
+                }
+            )
+            out_file.write(json_line + "\n")
+
+    # Save conditioned similarity metrics
+    with open(conditional_prefix_similarity_jsonl_filename, "w") as out_file:
+        for midi_file_path, melody_sim, rhythm_sim in conditioned_similarity:
+            if melody_sim is None or rhythm_sim is None:
+                continue
+            json_line = json.dumps(
+                {
+                    "path": midi_file_path,
+                    "melody": melody_sim.model_dump(mode="json"),
+                    "rhythm": rhythm_sim.model_dump(mode="json"),
+                }
+            )
+            out_file.write(json_line + "\n")
+
+    # Aggregate structure similarity metrics
+    def aggregate_similarity(jsonl_file: str) -> dict:
+        if not os.path.exists(jsonl_file) or os.path.getsize(jsonl_file) == 0:
+            return {"error": "No data available"}
+
+        df = pd.read_json(jsonl_file, lines=True)
+        if df.empty:
+            return {"error": "No data available"}
+
+        # Extract mean_best_similarities
+        melody = df["melody"].apply(lambda x: x["mean_best_similarities"])
+        rhythm = df["rhythm"].apply(lambda x: x["mean_best_similarities"])
+        mean = pd.Series({"melody": melody.mean(), "rhythm": rhythm.mean()})
+        se = pd.Series({"melody": melody.sem(ddof=1), "rhythm": rhythm.sem(ddof=1)})
+        Z95 = NormalDist().inv_cdf(0.975)
+        moe = se * Z95
+        ci_lower = mean - moe
+        ci_upper = mean + moe
+        return {
+            "mean": mean.to_dict(),
+            "se": se.to_dict(),
+            "moe": moe.to_dict(),
+            "ci95_lower": ci_lower.to_dict(),
+            "ci95_upper": ci_upper.to_dict(),
+        }
+
+    aggregated_similarities = {
+        "inner": aggregate_similarity(inner_similarity_jsonl_filename),
+        "reference": aggregate_similarity(reference_similarity_jsonl_filename) if reference_midi_files_dir else None,
+        "conditioned": (
+            aggregate_similarity(conditional_prefix_similarity_jsonl_filename) if n_conditioned_measures > 0 else None
+        ),
+    }
+
+    with open(aggregated_similarities_json, "w") as f:
+        json.dump(aggregated_similarities, f, indent=4)
 
     # Run the aesthetics calculation and write output to a JSONL file
     with open(output_jsonl_filename, "w") as outfile:

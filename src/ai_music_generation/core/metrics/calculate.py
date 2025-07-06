@@ -83,23 +83,24 @@ def calculate_inner_similarity_of_music_vectors(
 
 
 def calculate_reference_similarity_of_music_vectors(
-    vectors1: list[list[vectorT]],
-    vectors2: list[list[vectorT]],
+    source_piece_vectors: list[list[vectorT]],
+    reference_piece_vectors: list[list[vectorT]],
     similarity_function: Callable[[list[vectorT], list[vectorT]], float],
     return_best_matches: Literal["first", "closest", "all"] = "all",
     rel_tol: float = 1e-9,
     abs_tol: float = 1e-12,
+    n_measures_to_skip: int = 0,
 ) -> SimilarityResult:
     """
-    Given two lists of feature-vectors (one per measure) from piece A and piece B,
+    Given two lists of feature-vectors (one per measure) from a source piece and reference piece,
     and a similarity function sim(u, v) -> float, returns:
 
-      1) similarity_matrix: an MxN matrix of similarities between each measure i of piece A
-         and each measure j of piece B
-      2) best_matches: for each measure i in piece A, a tuple
+      1) similarity_matrix: an (M-skip)x(N-skip) matrix of similarities between each
+         measure i of the source piece (after skipping) and each measure j of the reference piece (after skipping)
+      2) best_matches: for each measure i in the source piece (after skipping), a tuple
            (max_sim, best_js, diffs)
          where
-           - max_sim is the highest similarity sim(vectors1[i], vectors2[j]) over j
+           - max_sim is the highest similarity sim(source_piece_vectors[i], reference_piece_vectors[j]) over j
            - best_js is the list of all j achieving max_sim (modulated by return_best_matches)
            - diffs is [abs(j - i) for j in best_js], giving how far apart the measures
              are by index (you can drop or reinterpret this if it's not meaningful)
@@ -110,19 +111,41 @@ def calculate_reference_similarity_of_music_vectors(
       - "first": keep only the first such j
       - "closest": among tied js, keep the one(s) with minimal |j - i|
 
-      # similarity_matrix[i][j] is sim between measure i of A and measure j of B
-      # best_matches[i] is (max_sim, matching_js, diffs) for measure i of A
+    Args:
+        source_piece_vectors: List of feature vectors for the source piece, one vector per measure
+        reference_piece_vectors: List of feature vectors for the reference piece, one vector per measure
+        similarity_function: Function that takes two vectors and returns a similarity score
+        return_best_matches: How to handle tied best matches
+        rel_tol: Relative tolerance for float comparison
+        abs_tol: Absolute tolerance for float comparison
+        n_measures_to_skip: Number of initial measures to skip from both pieces.
+                           These measures are assumed to be the same (conditioning measures)
+                           and are excluded from similarity calculations.
+
+    Returns:
+        SimilarityResult containing:
+        - similarity_matrix[i][j]: similarity between measure i of source piece and measure j of reference piece
+          (where i and j are 0-indexed after skipping the first n_measures_to_skip)
+        - best_matches[i]: (max_sim, matching_js, diffs) for measure i of source piece (after skipping)
+        - mean_best_similarities: mean of all max_sim values
+
+    Note: All indices in the output are relative to the truncated vectors after skipping.
+          To get original indices, add n_measures_to_skip to the returned indices.
     """
-    m = len(vectors1)
-    n = len(vectors2)
+    # Skip the first n_measures_to_skip measures from both vectors
+    source_vectors_to_compare = source_piece_vectors[n_measures_to_skip:]
+    reference_vectors_to_compare = reference_piece_vectors[n_measures_to_skip:]
+
+    m = len(source_vectors_to_compare)
+    n = len(reference_vectors_to_compare)
 
     # 1) Build cross-similarity matrix
     similarity_matrix: list[list[float]] = [[0.0] * n for _ in range(m)]
     for i in range(m):
         for j in range(n):
-            similarity_matrix[i][j] = similarity_function(vectors1[i], vectors2[j])
+            similarity_matrix[i][j] = similarity_function(source_vectors_to_compare[i], reference_vectors_to_compare[j])
 
-    # 2) For each measure i in piece A, find best matches among piece B
+    # 2) For each measure i in source piece, find best matches among reference piece
     best_matches: list[tuple[float, list[int], list[int]]] = []
     for i in range(m):
         row = similarity_matrix[i]
