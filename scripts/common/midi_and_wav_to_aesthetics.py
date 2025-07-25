@@ -3,6 +3,7 @@ import json
 import multiprocessing
 import os
 import subprocess
+import traceback  # NEW: for robust error logging
 from statistics import NormalDist
 
 import pandas as pd
@@ -21,17 +22,16 @@ from ai_music_generation.core.metrics.similarities import (
 from ai_music_generation.core.metrics.vectorization import MidiVectorizer
 
 # Configuration
-reference_midi_files_dir: str | None = None
-n_conditioned_measures: int = 0
-
-# Define paths
+wav_output_dir = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars/wav"
 midi_input_folder = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars/midi"
 base_output_dir = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars"
+reference_midi_files_dir: str | None = None
 reference_midi_files_dir = "data/03_converted/music21_bach/validation/midi"
+n_conditioned_measures: int = 0
 n_conditioned_measures = 4
 
 # WAV files directory (assumed to already exist with files)
-wav_output_dir = os.path.join(base_output_dir, "wav")
+# wav_output_dir = os.path.join(base_output_dir, "wav")
 
 # Create subdirectory for metrics
 metrics_dir = os.path.join(base_output_dir, "metrics")
@@ -69,6 +69,7 @@ def process_midi_file(
 
     # Define corresponding WAV file path (assumed to already exist)
     wav_file_path = os.path.join(wav_output_dir, f"file_{idx}.wav")
+    # wav_file_path = os.path.join(wav_output_dir, f"{idx}.wav")
 
     # Verify that the WAV file exists
     if not os.path.exists(wav_file_path):
@@ -126,6 +127,28 @@ def process_midi_file(
     )
 
 
+def safe_process_midi_file(midi_filename: str) -> (
+    tuple[
+        str,
+        tuple[str, SimilarityResult, SimilarityResult],
+        tuple[str, SimilarityResult | None, SimilarityResult | None],
+        tuple[str, SimilarityResult | None, SimilarityResult | None],
+    ]
+    | None
+):  # NEW: wrapper that never raises to the pool
+    """Wrapper around `process_midi_file` that swallows any exception so that
+    a single failure does not kill the entire pool. Returns `None` on error."""
+    try:
+        return process_midi_file(midi_filename)
+    except Exception as e:
+        # Print a concise message and the traceback for debugging. This happens
+        # inside the worker process, so we need to flush to make sure it’s
+        # visible, especially on Windows.
+        print(f"[ERROR] Failed processing {midi_filename}: {e}")
+        traceback.print_exc()
+        return None  # Signal failure to the parent process
+
+
 if __name__ == "__main__":
     # Verify that required directories exist
     if not os.path.exists(midi_input_folder):
@@ -137,10 +160,15 @@ if __name__ == "__main__":
     midi_files = sorted([f for f in os.listdir(midi_input_folder) if f.endswith(".mid")])
     print(f"Found {len(midi_files)} MIDI files")
 
-    # Process each MIDI file using multiprocessing
+    # Process each MIDI file using multiprocessing WITHOUT crashing on single‑file errors
+    processing_results: list = []  # NEW: collect successes only
     with multiprocessing.Pool() as pool:
-        processing_results = list(tqdm(pool.imap(process_midi_file, midi_files), total=len(midi_files)))
+        for result in tqdm(pool.imap_unordered(safe_process_midi_file, midi_files), total=len(midi_files)):
+            if result is not None:
+                processing_results.append(result)
+    print(f"Successfully processed {len(processing_results)} / {len(midi_files)} files")
 
+    # === The remainder of the script stays unchanged ===
     # Write the collected WAV file paths to a JSONL file
     wav_paths = [processing_result[0] for processing_result in processing_results]
     with open(input_jsonl_filename, "w") as out_file:
