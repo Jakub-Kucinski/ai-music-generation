@@ -10,7 +10,7 @@ Expected repository layout (relative to this script):
     - generate.py, utils.py, config.py, prompt.txt, weights.pth (auto-downloaded)
 - data/
     - 02_preprocessed/irishman/validation_leadsheet.json
-    - 04_generated/tunesformer/abc
+    - 03_converted/irishman/validation_leadsheet/abc_control_codes/
 
 Note: We reuse the original generation pipeline by temporarily writing
 our constructed prompt into `tunesformer/prompt.txt` and calling
@@ -29,9 +29,10 @@ import re
 # Import the tunesformer generation entrypoint
 # We add tunesformer/ to sys.path so we can `import generate`.
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Iterable, Tuple
+from typing import Any, Generator, Iterable, Tuple
 
 from tqdm import tqdm
 
@@ -45,12 +46,41 @@ if str(TUNESFORMER_DIR) not in sys.path:
 
 import generate as tunes_generate  # type: ignore  # noqa: E402
 
+# Robustify sampling: samplings sometimes receives probabilities that don't sum to 1.
+# We monkey-patch its random_sampling to renormalize defensively to avoid
+# ValueError: probabilities do not sum to 1 (numpy).
+try:  # noqa: E402
+    import numpy as _np
+    import samplings as _samplings
+
+    _orig_random_sampling = getattr(_samplings, "random_sampling", None)
+
+    def _safe_random_sampling(probs: Any, seed: Any = None) -> Any:
+        p = _np.asarray(probs, dtype=float)
+        # clip negatives, replace NaNs/Infs
+        p = _np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
+        p[p < 0] = 0.0
+        s = float(p.sum())
+        if s <= 0.0:
+            # fallback to uniform
+            p = _np.ones_like(p, dtype=float) / len(p)
+        else:
+            p = p / s
+        if seed is not None:
+            _np.random.seed(int(seed))
+        return _np.random.choice(range(len(p)), p=p)
+
+    _samplings.random_sampling = _safe_random_sampling
+except Exception:
+    # If patching fails, continue; user may still have working environment
+    pass
+
 
 @dataclass
 class GenParams:
     max_patch: int = 128
     top_p: float = 0.8
-    top_k: int = 200
+    top_k: int = 8
     temperature: float = 0.8
     seed: int | None = None
     show_control_code: bool = False
@@ -91,10 +121,22 @@ def _new_file_in_dir(before: set[str], directory: Path) -> Path | None:
     return newest
 
 
+@contextmanager
+def _chdir(path: Path):
+    old = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old)
+
+
 def generate_with_prompt(prompt: str, p: GenParams) -> str:
     """Write prompt to tunesformer/prompt.txt, run a single generation, return text.
 
     Uses tunesformer/generate.py's `generate_abc` to perform the heavy lifting.
+    We run inside `tunesformer/` so that its code can open relative paths
+    like `prompt.txt` and `output_tunes/`.
     """
     ensure_dirs(OUTPUT_TUNES_DIR)
 
@@ -105,7 +147,9 @@ def generate_with_prompt(prompt: str, p: GenParams) -> str:
 
     try:
         prompt_txt.write_text(prompt, encoding="utf-8")
-        before = set(os.listdir(OUTPUT_TUNES_DIR))
+
+        # Track files before generation
+        before = set(os.listdir(OUTPUT_TUNES_DIR)) if OUTPUT_TUNES_DIR.exists() else set()
 
         # Build args namespace matching generate.get_args expectations
         class _Args:
@@ -120,7 +164,9 @@ def generate_with_prompt(prompt: str, p: GenParams) -> str:
         args.seed = p.seed
         args.show_control_code = p.show_control_code
 
-        tunes_generate.generate_abc(args)  # writes a file into output_tunes
+        # Run inside tunesformer directory so generate.py's relative paths work
+        with _chdir(TUNESFORMER_DIR):
+            tunes_generate.generate_abc(args)  # writes a file into output_tunes/
 
         new_file = _new_file_in_dir(before, OUTPUT_TUNES_DIR)
         if new_file is None:
@@ -160,7 +206,7 @@ def main() -> None:
     parser.add_argument(
         "--output_dir",
         type=Path,
-        default=REPO_ROOT / "data/04_generated/tunesformer/abc",
+        default=REPO_ROOT / "data/03_converted/irishman/validation_leadsheet/abc_control_codes",
         help="Directory to write per-sample ABC files",
     )
     parser.add_argument(
@@ -174,7 +220,7 @@ def main() -> None:
     # Generation hyperparameters (mapped onto tunesformer generate.py)
     parser.add_argument("--max_patch", type=int, default=128)
     parser.add_argument("--temperature", type=float, default=0.8)
-    parser.add_argument("--top_k", type=int, default=200)
+    parser.add_argument("--top_k", type=int, default=8)
     parser.add_argument("--top_p", type=float, default=0.8)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
