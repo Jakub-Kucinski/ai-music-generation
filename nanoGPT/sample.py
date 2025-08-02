@@ -14,20 +14,21 @@ import torch
 from model import GPT, GPTConfig
 from tqdm import tqdm
 
-use_validation_prefixes = False
-dataset = "irishman"
-# dataset = "bach"
-tokens_format: Literal["char", "midi"] = "char"
+use_validation_prefixes = True
+# dataset = "irishman"
+dataset = "bach"
+tokens_format: Literal["char", "midi"] = "midi"
 validation_path = ""
 # validation_path = "../data/02_preprocessed/irishman/validation_leadsheet.json"
 # validation_path = "../data/03_converted/irishman/validation_leadsheet/midi_texts"
 # validation_path = "../data/03_converted/irishman/validation_leadsheet/midi_texts_no_offsets"
-# validation_path = "../data/03_converted/music21_bach/validation/midi_texts"
+validation_path = "../data/03_converted/music21_bach/validation/midi_texts"
 # validation_path = "../data/03_converted/music21_bach/validation/midi_texts_no_offsets"
 n_conditional_measures = 4
+# out_dir = "out"  # ignored if init_from is not 'resume'
+out_dir = "out-bach-512-context-augmented"
 # -----------------------------------------------------------------------------
 init_from = "resume"  # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
-out_dir = "out"  # ignored if init_from is not 'resume'
 start = "$"  # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
 num_samples = 1000  # number of samples to draw
 max_new_tokens = 500  # number of tokens generated in each sample

@@ -34,10 +34,10 @@ sample_rate = 16_000
 reference_midi_files_dir: str | None = None
 n_conditioned_measures: int = 0
 # Define paths
-midi_input_folder = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars/midi"
-base_output_dir = "data/04_generated/music21_bach_no_offsets_512_context/conditioned_4_bars"
-# reference_midi_files_dir = "data/03_converted/music21_bach/validation/midi"
-# n_conditioned_measures = 4
+midi_input_folder = "data/04_generated/music21_bach_512_context_augmented/conditioned_4_bars/midi"
+base_output_dir = "data/04_generated/music21_bach_512_context_augmented/conditioned_4_bars"
+reference_midi_files_dir = "data/03_converted/music21_bach/validation/midi"
+n_conditioned_measures = 4
 
 # Create subdirectory for WAV outputs
 wav_output_dir = os.path.join(

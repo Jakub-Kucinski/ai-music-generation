@@ -176,10 +176,15 @@ class MidiQuantizedConverter:
     def filepath_to_texts(
         self,
         midi_path: Path,
+        transpose_pitches_by_n: int | None = None,
     ) -> dict[str, str]:
         stream = music21.converter.parseFile(midi_path)
         stream = self._quantize_stream(stream)
-        score_name_to_text = self.stream_to_texts(stream, midi_path.name)
+        score_name_to_text = self.stream_to_texts(
+            stream,
+            midi_path.name,
+            transpose_pitches_by_n=transpose_pitches_by_n,
+        )
         return score_name_to_text
 
     def _quantize_stream(self, stream: Score | Part | Opus) -> Score | Part | Opus:
@@ -194,6 +199,7 @@ class MidiQuantizedConverter:
         self,
         stream: Opus | Score | Part,
         file_name: str,
+        transpose_pitches_by_n: int | None = None,
     ) -> dict[str, str]:
         score_name_to_text: dict[str, str] = {}
         # TODO:
@@ -212,6 +218,11 @@ class MidiQuantizedConverter:
             raise ValueError(f"Got stream of type {type(stream)}, but expected Opus | Score | Part")
 
         score.quantize(quarterLengthDivisors=self._get_quarterLengthDivisors(), inPlace=True, recurse=True)
+        if transpose_pitches_by_n is not None:
+            transposed_score = score.transpose(transpose_pitches_by_n)
+            if transposed_score is None:
+                raise ValueError(f"Transposition by {transpose_pitches_by_n} of file {file_name} resulted in None")
+            score = transposed_score
         if self.settings.repeats_handling == "Expand":
             score = score.expandRepeats()
 
