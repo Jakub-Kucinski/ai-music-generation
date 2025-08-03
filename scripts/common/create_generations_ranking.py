@@ -7,17 +7,16 @@ import pandas as pd
 # Global path variables
 
 # Directory containing inner_similarity.jsonl, reference_similarity.jsonl, conditional_prefix_similarity.jsonl
-STRUCTURAL_METRICS_DIR = Path(
-    "data/04_generated/music21_bach_512_context_augmented/conditioned_4_bars/metrics/structure"
-)
+STRUCTURAL_METRICS_DIR = Path("data/04_generated/irishman_1k_context/conditioned_4_bars/metrics/structure")
 
 # Directory containing aesthetics.jsonl and wav_paths.jsonl
-AESTHETICS_DIR = Path(
-    "data/04_generated/music21_bach_512_context_augmented/conditioned_4_bars/metrics/audiobox_aesthetics"
-)
+AESTHETICS_DIR = Path("data/04_generated/irishman_1k_context/conditioned_4_bars/metrics/audiobox_aesthetics")
 
 # Directory where results will be saved
-RESULTS_DIR = Path("data/04_generated/music21_bach_512_context_augmented/conditioned_4_bars/metrics/ranking")
+RESULTS_DIR = Path("data/04_generated/irishman_1k_context/conditioned_4_bars/metrics/ranking")
+
+
+INCLUDE_REFERENCE_SIMILARITIES = True
 
 # Create results directory if it doesn't exist
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -123,24 +122,37 @@ def print_summary(df: pd.DataFrame, ranking_columns: list[str]) -> None:
 
 
 def main() -> None:
-    """Main function to process similarity and aesthetics data and create rankings."""
+    """
+    Main function to process similarity and aesthetics data and create rankings.
+
+    Args:
+        INCLUDE_REFERENCE_SIMILARITIES: Whether to include reference similarities in the ranking.
+                                       Set to False if reference_similarity.jsonl is not available.
+    """
     # Read all data files
     print("Reading data files...")
     inner_sim_data: list[dict[str, Any]] = read_jsonl(STRUCTURAL_METRICS_DIR / "inner_similarity.jsonl")
-    reference_sim_data: list[dict[str, Any]] = read_jsonl(STRUCTURAL_METRICS_DIR / "reference_similarity.jsonl")
     prefix_sim_data: list[dict[str, Any]] = read_jsonl(STRUCTURAL_METRICS_DIR / "conditional_prefix_similarity.jsonl")
     aesthetics_data: list[dict[str, Any]] = read_jsonl(AESTHETICS_DIR / "aesthetics.jsonl")
     wav_paths_data: list[dict[str, Any]] = read_jsonl(AESTHETICS_DIR / "wav_paths.jsonl")
 
+    # Read reference similarity only if requested and file exists
+    ref_sim_dict: dict[str, tuple[float, float]] = {}
+    if INCLUDE_REFERENCE_SIMILARITIES:
+        reference_sim_path = STRUCTURAL_METRICS_DIR / "reference_similarity.jsonl"
+        if reference_sim_path.exists():
+            reference_sim_data: list[dict[str, Any]] = read_jsonl(reference_sim_path)
+            ref_sim_dict = extract_similarities_as_dict(reference_sim_data)
+
     # Extract similarities as dictionaries keyed by identifier
     print("\nExtracting similarities...")
     inner_sim_dict: dict[str, tuple[float, float]] = extract_similarities_as_dict(inner_sim_data)
-    ref_sim_dict: dict[str, tuple[float, float]] = extract_similarities_as_dict(reference_sim_data)
     prefix_sim_dict: dict[str, tuple[float, float]] = extract_similarities_as_dict(prefix_sim_data)
 
     # Debug: Print sample entries
     print(f"\nSample inner similarity entries: {list(inner_sim_dict.items())[:3]}")
-    print(f"Sample reference similarity entries: {list(ref_sim_dict.items())[:3]}")
+    if INCLUDE_REFERENCE_SIMILARITIES and ref_sim_dict:
+        print(f"Sample reference similarity entries: {list(ref_sim_dict.items())[:3]}")
     print(f"Sample prefix similarity entries: {list(prefix_sim_dict.items())[:3]}")
 
     # Extract wav paths and their identifiers
@@ -178,13 +190,15 @@ def main() -> None:
             row["inner_melodic_sim"] = None
             row["inner_rhythmic_sim"] = None
 
-        if identifier in ref_sim_dict:
-            melodic, rhythmic = ref_sim_dict[identifier]
-            row["reference_melodic_sim"] = melodic
-            row["reference_rhythmic_sim"] = rhythmic
-        else:
-            row["reference_melodic_sim"] = None
-            row["reference_rhythmic_sim"] = None
+        # Only add reference similarities if we're including them
+        if INCLUDE_REFERENCE_SIMILARITIES:
+            if identifier in ref_sim_dict:
+                melodic, rhythmic = ref_sim_dict[identifier]
+                row["reference_melodic_sim"] = melodic
+                row["reference_rhythmic_sim"] = rhythmic
+            else:
+                row["reference_melodic_sim"] = None
+                row["reference_rhythmic_sim"] = None
 
         if identifier in prefix_sim_dict:
             melodic, rhythmic = prefix_sim_dict[identifier]
@@ -206,15 +220,18 @@ def main() -> None:
         print("\nWarning: Missing values detected:")
         print(missing_counts[missing_counts > 0])
 
-        # Drop rows with missing similarity values
+        # Define similarity columns based on what we're including
         similarity_columns = [
             "inner_melodic_sim",
             "inner_rhythmic_sim",
-            "reference_melodic_sim",
-            "reference_rhythmic_sim",
             "prefix_melodic_sim",
             "prefix_rhythmic_sim",
         ]
+
+        if INCLUDE_REFERENCE_SIMILARITIES:
+            similarity_columns.extend(["reference_melodic_sim", "reference_rhythmic_sim"])
+
+        # Drop rows with missing similarity values
         df = df.dropna(subset=similarity_columns)
         print(f"\nAfter dropping rows with missing similarities: {len(df)} rows remaining")
 
@@ -223,12 +240,10 @@ def main() -> None:
     df.to_csv(all_metrics_path, index=False)
     print(f"\nSaved all metrics to '{all_metrics_path}'")
 
-    # Define ranking columns
+    # Define ranking columns based on what we're including
     ranking_columns: list[str] = [
         "inner_melodic_sim",
         "inner_rhythmic_sim",
-        "reference_melodic_sim",
-        "reference_rhythmic_sim",
         "prefix_melodic_sim",
         "prefix_rhythmic_sim",
         "CE",
@@ -236,6 +251,14 @@ def main() -> None:
         "PC",
         "PQ",
     ]
+
+    if INCLUDE_REFERENCE_SIMILARITIES:
+        # Insert reference similarities after inner similarities
+        ranking_columns.insert(2, "reference_melodic_sim")
+        ranking_columns.insert(3, "reference_rhythmic_sim")
+
+    print(f"\nUsing {len(ranking_columns)} metrics for ranking:")
+    print(f"  {', '.join(ranking_columns)}")
 
     # Create rankings
     print("\nCreating rankings...")
