@@ -11,6 +11,7 @@ Compared to the original:
 - Normalizes time-signature to the parsed M/N and injects it only in bar 0.
 - Strips any meta tokens from subsequent bars.
 - Writes each piece on a single line (bars separated by " / oXX |"), matching the target format.
+- Output filenames follow the pattern: "file_{piece_idx}.txt" with a global index.
 
 Usage
 -----
@@ -30,6 +31,8 @@ import re
 import sys
 from collections import defaultdict
 from typing import List, Tuple
+
+from tqdm.auto import tqdm
 
 TIME_SIG_RE = re.compile(r"time_signature_(\d+/\d+)")
 BAR_SPLIT_RE = re.compile(r"\|")  # split on barlines
@@ -131,7 +134,7 @@ def build_one_piece(
         out_tokens.append(" ".join(bar_voice_chunks))
 
     # Write as a single line (matching the provided proper sample)
-    out_path = out_dir / f"{tsig.replace('/', '-')}_mix_{piece_idx:05d}.txt"
+    out_path = out_dir / f"file_{piece_idx}.txt"
     out_path.write_text(" ".join(out_tokens), encoding="utf-8")
 
 
@@ -148,9 +151,8 @@ def create_dataset(
     pools: dict[str, List[Tuple[str, str, List[str]]]] = defaultdict(list)
     offsets: dict[str, str] = {}  # tsig -> offset token
 
-    for f in input_dir.glob("*"):
-        if not f.is_file():
-            continue
+    files = [f for f in input_dir.glob("*") if f.is_file()]
+    for f in tqdm(files, desc="Parsing melody files", unit="file"):
         try:
             tsig, offset, melody = parse_file(f)
         except ValueError as e:
@@ -166,21 +168,30 @@ def create_dataset(
     if not pools:
         sys.exit("No valid files found.")
 
-    # Synthesize pieces
-    for tsig, melodies in pools.items():
-        if len(melodies) < 4:
-            print(f"Time-sig {tsig}: only {len(melodies)} melodies - skipped.")
-            continue
+    # Compute total pieces to write across all time signatures to size the progress bar.
+    total_to_write = sum(pieces_per_sig for tsig, melodies in pools.items() if len(melodies) >= 4)
+    if total_to_write == 0:
+        sys.exit("Not enough melodies to synthesize any pieces (need at least 4 per time signature).")
 
-        for i in range(pieces_per_sig):
-            build_one_piece(
-                melodies,
-                piece_idx=i,
-                out_dir=output_dir,
-                tsig=tsig,
-                offset=offsets[tsig],
-            )
-        print(f"{tsig}: wrote {pieces_per_sig} mixes (from {len(melodies)} source melodies).")
+    global_idx = 0
+    with tqdm(total=total_to_write, desc="Writing synthetic pieces", unit="file") as pbar:
+        # Synthesize pieces
+        for tsig, melodies in pools.items():
+            if len(melodies) < 4:
+                print(f"Time-sig {tsig}: only {len(melodies)} melodies - skipped.")
+                continue
+
+            for _ in range(pieces_per_sig):
+                build_one_piece(
+                    melodies,
+                    piece_idx=global_idx,
+                    out_dir=output_dir,
+                    tsig=tsig,
+                    offset=offsets[tsig],
+                )
+                global_idx += 1
+                pbar.update(1)
+            print(f"{tsig}: wrote {pieces_per_sig} mixes (from {len(melodies)} source melodies).")
 
 
 def _cli() -> None:
