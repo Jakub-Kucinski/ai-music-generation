@@ -5507,6 +5507,17 @@ testing = ["h5py (>=3.7.0)", "huggingface-hub (>=0.12.1)", "hypothesis (>=6.70.2
 torch = ["safetensors[numpy]", "torch (>=1.10)"]
 
 [[package]]
+name = "samplings"
+version = "0.1.7"
+description = "A collection of sampling methods for machine learning implemented on numpy."
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "samplings-0.1.7-py3-none-any.whl", hash = "sha256:e822913cf7498a5465027461a4b6986d19fb379c346492683236c77da98f8284"},
+    {file = "samplings-0.1.7.tar.gz", hash = "sha256:647f85b0bed5651b3717c05528e37f00b6c710e5679b641e129554eecc135d1c"},
+]
+
+[[package]]
 name = "seaborn"
 version = "0.13.2"
 description = "Statistical data visualization"
@@ -5617,6 +5628,24 @@ files = [
     {file = "soupsieve-2.6-py3-none-any.whl", hash = "sha256:e72c4ff06e4fb6e4b5a9f0f55fe6e81514581fca1515028625d0f299c602ccc9"},
     {file = "soupsieve-2.6.tar.gz", hash = "sha256:e2e68417777af359ec65daac1057404a3c8a5455bb8abc36f1a9866ab1a51abb"},
 ]
+
+[[package]]
+name = "sox"
+version = "1.5.0"
+description = "Python wrapper around SoX."
+optional = false
+python-versions = "*"
+files = [
+    {file = "sox-1.5.0.tar.gz", hash = "sha256:12c7be5bb1f548d891fe11e82c08cf5f1a1d74e225298f60082e5aeb2469ada0"},
+]
+
+[package.dependencies]
+numpy = ">=1.9.0"
+typing-extensions = ">=3.7.4.2"
+
+[package.extras]
+docs = ["numpydoc", "sphinx (==1.2.3)", "sphinx_rtd_theme", "sphinxcontrib-napoleon"]
+tests = ["pytest", "pytest-cov", "pytest-pep8", "soundfile (>=0.11.0)"]
 
 [[package]]
 name = "sqlalchemy"
@@ -6305,6 +6334,17 @@ files = [
 ]
 
 [[package]]
+name = "unidecode"
+version = "1.4.0"
+description = "ASCII transliterations of Unicode text"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "Unidecode-1.4.0-py3-none-any.whl", hash = "sha256:c3c7606c27503ad8d501270406e345ddb480a7b5f38827eafe4fa82a137f0021"},
+    {file = "Unidecode-1.4.0.tar.gz", hash = "sha256:ce35985008338b676573023acc382d62c264f307c8f7963733405add37ea2b23"},
+]
+
+[[package]]
 name = "uri-template"
 version = "1.3.0"
 description = "RFC 6570 URI Template Processor"
@@ -6724,4 +6764,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "02b7c51a21c3e67690aceaf238bec1c225535568ee3c0c87d0dc2d5e6ebe907b"
+content-hash = "bedc4cf93d2facc6c657f6bcc305862b19148287781e41af00de6db963ffc1be"

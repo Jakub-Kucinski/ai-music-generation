@@ -35,11 +35,13 @@ sound_font: str | None = "Essential Keys-sforzando-v9.6.sf2"
 sample_rate = 16_000
 
 reference_midi_files_dir: str | None = None
-n_conditioned_measures: int = 4
+reference_midi_files_dir = "data/03_converted/irishman/validation_leadsheet/midi/abc2midi"
+n_conditioned_measures: int = 0
+n_conditioned_measures = 4
 
 # Define paths
-abc_input_folder = "data/04_generated/irishman_midi/conditioned_4_bars/abc"
-base_output_dir = "data/04_generated/irishman_midi/conditioned_4_bars"
+abc_input_folder = "data/04_generated/tunesformer/conditioned_4_bars/abc"
+base_output_dir = "data/04_generated/tunesformer/conditioned_4_bars"
 os.makedirs(base_output_dir, exist_ok=True)
 
 # Create subdirectories for MIDI and WAV outputs

@@ -7,13 +7,17 @@ import pandas as pd
 # Global path variables
 
 # Directory containing inner_similarity.jsonl, reference_similarity.jsonl, conditional_prefix_similarity.jsonl
-STRUCTURAL_METRICS_DIR = Path("data/04_generated/irishman_1k_context/conditioned_4_bars/metrics/structure")
+STRUCTURAL_METRICS_DIR = Path(
+    "data/04_generated/music21_bach_from_synthetic_512_context/conditioned_4_bars/metrics/structure"
+)
 
 # Directory containing aesthetics.jsonl and wav_paths.jsonl
-AESTHETICS_DIR = Path("data/04_generated/irishman_1k_context/conditioned_4_bars/metrics/audiobox_aesthetics")
+AESTHETICS_DIR = Path(
+    "data/04_generated/music21_bach_from_synthetic_512_context/conditioned_4_bars/metrics/audiobox_aesthetics"
+)
 
 # Directory where results will be saved
-RESULTS_DIR = Path("data/04_generated/irishman_1k_context/conditioned_4_bars/metrics/ranking")
+RESULTS_DIR = Path("data/04_generated/music21_bach_from_synthetic_512_context/conditioned_4_bars/metrics/ranking")
 
 
 INCLUDE_REFERENCE_SIMILARITIES = True
@@ -43,6 +47,9 @@ def extract_identifier_from_path(path: str) -> str:
     # Handle MIDI paths: sample_bwv121.6 -> bwv121.6
     elif "sample_" in filename:
         return filename.replace("sample_", "")
+
+    elif "file_" in filename:
+        return filename.replace("file_", "")
 
     # If neither pattern matches, return the filename as is
     return filename
