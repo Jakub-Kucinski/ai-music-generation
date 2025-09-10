@@ -60,4 +60,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pyright]
-exclude = ["data", "env", "venv"]
+exclude = ["data", "env", "venv", "tunesformer"]

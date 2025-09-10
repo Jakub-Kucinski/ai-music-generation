@@ -3,5 +3,6 @@
         "data",
         "env",
         "venv",
-    ],
+        "tunesformer"
+    ]
 }
